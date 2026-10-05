@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SpikeCoach</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html {
+      height: 100%;
+      background: #0d1117;
+    }
+    body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+      background-color: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      flex-direction: column;
+      font-family: 'Inter', 'Segoe UI', Roboto, sans-serif;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.4);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .header h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #ff4655;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      flex: 0 0 auto;
+    }
+    .nav-tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .nav-tab {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.06);
+      color: #c9d1d9;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .nav-tab.active {
+      background: rgba(255, 70, 85, 0.22);
+      border-color: rgba(255, 70, 85, 0.55);
+      color: #ffffff;
+    }
+    .page { display: none; flex: 1; min-height: 0; padding: 12px 14px; }
+    .page.active { display: flex; flex-direction: column; }
+    .page-scroll { flex: 1; min-height: 0; overflow: auto; }
+    .page-note {
+      font-size: 0.75rem;
+      color: #8b949e;
+      margin-bottom: 10px;
+    }
+    .stat-hero {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px;
+      margin-bottom: 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+    }
+    .agent-portrait {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .hero-name {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .hero-side {
+      color: #8b949e;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .stat-cell {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .stat-label {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.72rem;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #8b949e;
+    }
+    .stat-value {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.95rem;
+      margin-top: 4px;
+    }
+    .ability-row { display: flex; gap: 8px; margin-top: 12px; }
+    .ability {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      opacity: 0.35;
+    }
+    .ability.ready { opacity: 1; border-color: rgba(88, 166, 255, 0.7); }
+    .ability img { width: 28px; height: 28px; object-fit: contain; }
+    .ability span {
+      position: absolute;
+      bottom: -2px;
+      right: 3px;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.65rem;
+      font-weight: 700;
+    }
+    .score-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 10px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+    }
+    .score-number {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 800;
+    }
+    .score-side.blue .score-number { color: #58a6ff; }
+    .score-side.red .score-number { color: #f85149; }
+    .score-label {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.72rem;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-align: center;
+    }
+    .score-divider { font-family: 'Orbitron', sans-serif; color: #484f58; font-size: 1.4rem; }
+    .teams { display: flex; gap: 10px; }
+    .team {
+      flex: 1;
+      min-width: 0;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 8px;
+    }
+    .team-header {
+      font-family: 'Rajdhani', sans-serif;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 0.95rem;
+    }
+    .team.allies .team-header { color: #58a6ff; }
+    .team.enemies .team-header { color: #f85149; }
+    .team-side {
+      text-align: center;
+      color: #8b949e;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .player-row {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 6px;
+      align-items: center;
+      padding: 5px 4px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .player-row:hover { background: rgba(255, 255, 255, 0.05); }
+    .player-row.dead { opacity: 0.45; }
+    .player-row img { width: 28px; height: 28px; border-radius: 4px; object-fit: cover; }
+    .player-main { min-width: 0; }
+    .player-name {
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-meta { font-size: 0.68rem; color: #8b949e; }
+    .player-kda {
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+    .detail {
+      margin-top: 10px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .detail h2 {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1.15rem;
+      margin-bottom: 6px;
+    }
+    .back-btn, .chat-send {
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 70, 85, 0.85);
+      color: white;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .duel-list { margin-top: 8px; font-size: 0.82rem; line-height: 1.45; }
+    .duel-list h3 {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.85rem;
+      color: #8b949e;
+      text-transform: uppercase;
+      margin: 8px 0 2px;
+    }
+    .rec-card {
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-left: 3px solid #ff4655;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+    .rec-category {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.72rem;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #ff4655;
+    }
+    .rec-title {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+    .rec-text { margin-top: 4px; font-size: 0.86rem; line-height: 1.4; }
+    .rec-evidence { margin-top: 6px; font-size: 0.72rem; color: #8b949e; line-height: 1.35; }
+    .chat-log {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-bottom: 8px;
+    }
+    .chat-msg {
+      max-width: 85%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 0.84rem;
+      line-height: 1.4;
+    }
+    .chat-msg.user { align-self: flex-end; background: rgba(255, 70, 85, 0.22); }
+    .chat-msg.bot { align-self: flex-start; background: rgba(255, 255, 255, 0.06); }
+    .chat-msg.bot p { margin-bottom: 4px; }
+    .chat-bar { display: flex; gap: 8px; }
+    .chat-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      color: #e6edf3;
+      padding: 8px 10px;
+      font-family: 'Inter', sans-serif;
+    }
+    .empty { color: #8b949e; font-size: 0.84rem; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>SpikeCoach</h1>
+    <nav class="nav-tabs">
+      <button class="nav-tab active" data-page="stats">My Stats</button>
+      <button class="nav-tab" data-page="scoreboard">Scoreboard</button>
+      <button class="nav-tab" data-page="recommendations">Recommendations</button>
+      <button class="nav-tab" data-page="chat">Coach Chat</button>
+    </nav>
+  </header>
+
+  <section class="page active" id="page-stats">
+    <div class="page-scroll" id="statsView"></div>
+  </section>
+
+  <section class="page" id="page-scoreboard">
+    <div class="page-scroll" id="scoreboardView"></div>
+  </section>
+
+  <section class="page" id="page-recommendations">
+    <div class="page-scroll" id="recommendationsView"></div>
+  </section>
+
+  <section class="page" id="page-chat">
+    <div class="chat-log" id="chatLog"></div>
+    <form class="chat-bar" id="chatForm">
+      <input class="chat-input" id="chatInput" maxlength="250" placeholder="Ask a general Valorant question..." autocomplete="off">
+      <button class="chat-send" type="submit">Send</button>
+    </form>
+  </section>
+
+  <script type="module" src="firebase-init.js"></script>
+  <script src="agent-abilities-manifest.js"></script>
+  <script src="spikecoach-match.js"></script>
+</body>
+</html>

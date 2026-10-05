@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "@overwolf/ow-electron": "^37.7.0",
+    "@overwolf/ow-electron-builder": "^26.0.12",
+    "@overwolf/ow-electron-packages-types": "^1.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "firebase-admin": "^13.10.0",
+    "openai": "^7.28.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "start-server": "node server.js"
+  }
+}

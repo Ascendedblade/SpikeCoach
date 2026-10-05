@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SpikeCoach - Product</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="product-container">
+    <div class="product-header">
+      <img src="spikecoach_emblem.png" alt="SPIKECOACH">
+      <h1>SpikeCoach</h1>
+      <button id="backToLanding" class="back-btn">← Back to Landing</button>
+    </div>
+    
+    <!-- Navigation Taskbar -->
+    <nav class="product-taskbar">
+      <ul class="taskbar-nav">
+        <li class="taskbar-item active" data-section="lineups">
+          <span class="taskbar-text">Line-ups</span>
+        </li>
+        <li class="taskbar-item" data-section="past-games">
+          <span class="taskbar-text">Past Games</span>
+        </li>
+        <li class="taskbar-item" data-section="analyze">
+          <span class="taskbar-text">Analyze</span>
+        </li>
+        <li class="taskbar-item" data-section="ai-coach">
+          <span class="taskbar-text">AI Coach</span>
+        </li>
+      </ul>
+    </nav>
+    
+    <div class="product-content">
+      <h2>Welcome to SpikeCoach</h2>
+      <p>Your AI Valorant coaching experience starts here.</p>
+      
+      <!-- This is where your main product features will go -->
+      <div class="placeholder-content">
+        <div class="feature-card">
+          <h3>Strategy Coaching</h3>
+          <p>AI-powered strategic analysis and recommendations</p>
+        </div>
+        <div class="feature-card">
+          <h3>Aim Training</h3>
+          <p>Personalized aim improvement exercises</p>
+        </div>
+        <div class="feature-card">
+          <h3>Decision Making</h3>
+          <p>Real-time decision analysis and feedback</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="product.js"></script>
+</body>
+</html>
