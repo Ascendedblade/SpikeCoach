@@ -123,6 +123,7 @@ function enterSpikeCoachAfterAuth() {
 
 var spikeCoachAuthBootstrapped = false;
 var spikeCoachSignOutRequested = false;
+var spikeCoachVerificationExitInProgress = false;
 var spikeCoachAuthNullLogoutTimer = null;
 var spikeCoachInitialAuthFallbackTimer = null;
 
@@ -256,7 +257,7 @@ window.spikeCoachOnAuthStateChanged = function(user) {
       } else if (!document.getElementById('goodbyeText') && !isSpikeCoachPostLoginFlowVisible()) {
         showMainApp();
       }
-    } else if (!isSpikeCoachMainAppVisible() && !document.querySelector('.login-container')) {
+    } else if (!spikeCoachVerificationExitInProgress && !isSpikeCoachMainAppVisible() && !document.querySelector('.login-container')) {
       showEmailVerificationScreen({ email: user.email || '' });
     }
     return;
@@ -338,6 +339,10 @@ function showEmailVerificationScreen(options) {
           <button id="resendVerifyBtn" type="button" class="secondary-btn">Resend verification email</button>
           <button id="verifiedCheckBtn" type="button" class="signup-btn">I've verified my email</button>
         </div>
+        <div class="verify-exit">
+          <button id="verifyBackToLoginBtn" type="button" class="text-link-btn">Back to Login</button>
+          <button id="verifyDifferentEmailBtn" type="button" class="text-link-btn">Use a Different Email</button>
+        </div>
       </form>
     </div>
   `;
@@ -347,7 +352,10 @@ function showEmailVerificationScreen(options) {
   var verifyMsg = document.getElementById('verifyMsg');
   var resendBtn = document.getElementById('resendVerifyBtn');
   var verifiedBtn = document.getElementById('verifiedCheckBtn');
+  var backToLoginBtn = document.getElementById('verifyBackToLoginBtn');
+  var differentEmailBtn = document.getElementById('verifyDifferentEmailBtn');
   var cooldownTimer = null;
+  var leavingVerification = false;
 
   function setVerifyMessage(text, isInfo) {
     if (!verifyMsg) return;
@@ -428,6 +436,68 @@ function showEmailVerificationScreen(options) {
           console.error('Reload user error:', err);
           setVerifyMessage(mapFirebaseAuthError(err), false);
         });
+    });
+  }
+
+  function leaveVerificationScreen(showNext) {
+    if (leavingVerification) return;
+    leavingVerification = true;
+    verificationResendAvailableAt = 0;
+    if (cooldownTimer) {
+      clearTimeout(cooldownTimer);
+      cooldownTimer = null;
+    }
+    if (resendBtn) resendBtn.disabled = true;
+    if (verifiedBtn) verifiedBtn.disabled = true;
+    if (backToLoginBtn) backToLoginBtn.disabled = true;
+    if (differentEmailBtn) differentEmailBtn.disabled = true;
+
+    function finish() {
+      showNext();
+      spikeCoachVerificationExitInProgress = false;
+    }
+
+    var current = window.firebaseAuth && window.firebaseAuth.currentUser;
+    if (!current) {
+      finish();
+      return;
+    }
+    if (!window.signOutUser) {
+      leavingVerification = false;
+      if (verifiedBtn) verifiedBtn.disabled = false;
+      if (backToLoginBtn) backToLoginBtn.disabled = false;
+      if (differentEmailBtn) differentEmailBtn.disabled = false;
+      updateResendCooldownUi();
+      setVerifyMessage('Authentication not initialized.', false);
+      return;
+    }
+
+    spikeCoachVerificationExitInProgress = true;
+    spikeCoachSignOutRequested = true;
+    clearSpikeCoachAuthNullLogoutTimer();
+    window.signOutUser()
+      .then(finish)
+      .catch(function(err) {
+        leavingVerification = false;
+        spikeCoachVerificationExitInProgress = false;
+        spikeCoachSignOutRequested = false;
+        if (verifiedBtn) verifiedBtn.disabled = false;
+        if (backToLoginBtn) backToLoginBtn.disabled = false;
+        if (differentEmailBtn) differentEmailBtn.disabled = false;
+        updateResendCooldownUi();
+        console.error('Verification exit sign out error:', err);
+        setVerifyMessage(mapFirebaseAuthError(err), false);
+      });
+  }
+
+  if (backToLoginBtn) {
+    backToLoginBtn.addEventListener('click', function() {
+      leaveVerificationScreen(showLoginScreen);
+    });
+  }
+  if (differentEmailBtn) {
+    differentEmailBtn.addEventListener('click', function() {
+      leaveVerificationScreen(showGetStartedScreen);
     });
   }
 
