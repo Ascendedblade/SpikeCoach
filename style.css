@@ -3089,6 +3089,15 @@ p {
   margin-top: 24px;
 }
 
+.ai-chat-disclaimer {
+  margin: 12px 4px 0;
+  text-align: center;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: #7a8a96;
+}
+
 .ai-chat-match-notice {
   flex: 1 1 100%;
   margin: 0;

@@ -1479,6 +1479,7 @@ function showMainApp() {
               <input type="text" id="aiChatInput" placeholder="Ask me anything about Valorant..." maxlength="250">
               <button id="aiChatSend">Send</button>
             </div>
+            <p class="ai-chat-disclaimer">The first AI response may take around 30–60 seconds while the server starts up.</p>
           </div>
         </div>
         <div class="blank-section" id="guessRankSection">
