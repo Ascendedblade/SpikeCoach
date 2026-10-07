@@ -1,3 +1,522 @@
+var VERIFICATION_RESEND_COOLDOWN_MS = 60000;
+var verificationResendAvailableAt = 0;
+var SPIKECOACH_USERNAME_MIN = 3;
+var SPIKECOACH_USERNAME_MAX = 20;
+var SPIKECOACH_DEFAULT_DISPLAY_NAME = 'Player';
+
+function validateSpikeCoachUsername(raw) {
+  var name = (raw || '').trim();
+  if (!name) {
+    return { ok: false, message: 'Please enter a username.' };
+  }
+  if (name.length < SPIKECOACH_USERNAME_MIN) {
+    return { ok: false, message: 'Username must be at least 3 characters.' };
+  }
+  if (name.length > SPIKECOACH_USERNAME_MAX) {
+    return { ok: false, message: 'Username must be 20 characters or fewer.' };
+  }
+  return { ok: true, name: name };
+}
+
+function getFirebaseAuthUser() {
+  return window.firebaseAuth && window.firebaseAuth.currentUser;
+}
+
+function getSpikeCoachDisplayName(user) {
+  user = user || getFirebaseAuthUser();
+  if (!user || !user.displayName) {
+    return SPIKECOACH_DEFAULT_DISPLAY_NAME;
+  }
+  var trimmed = String(user.displayName).trim();
+  return trimmed || SPIKECOACH_DEFAULT_DISPLAY_NAME;
+}
+
+function getSpikeCoachUserInitial(user) {
+  return getSpikeCoachDisplayName(user).charAt(0).toUpperCase();
+}
+
+function updateSpikeCoachUsernameInUI(displayName) {
+  var name = displayName || SPIKECOACH_DEFAULT_DISPLAY_NAME;
+  var initial = name.charAt(0).toUpperCase();
+  var dropdownUsername = document.querySelector('.dropdown-username');
+  if (dropdownUsername) {
+    dropdownUsername.textContent = name;
+  }
+  var overlayUsername = document.querySelector('.profile-overlay-username');
+  if (overlayUsername) {
+    overlayUsername.textContent = name;
+  }
+  var usernameDisplay = document.getElementById('usernameDisplay');
+  if (usernameDisplay) {
+    usernameDisplay.textContent = name;
+  }
+  var mainProfileCircle = document.getElementById('mainProfileCircle');
+  if (mainProfileCircle) {
+    mainProfileCircle.textContent = initial;
+  }
+  var profileCircles = document.querySelectorAll('.profile-circle, .profile-circle-large, .profile-circle-xlarge');
+  profileCircles.forEach(function(circle) {
+    circle.textContent = initial;
+  });
+}
+
+function mapFirebaseAuthError(err, context) {
+  var code = (err && err.code) || '';
+  var msg = (err && err.message) || '';
+
+  if (code === 'auth/invalid-email' || msg.indexOf('invalid-email') !== -1) {
+    return 'Invalid email address.';
+  }
+  if (
+    code === 'auth/wrong-password' ||
+    code === 'auth/user-not-found' ||
+    code === 'auth/invalid-credential' ||
+    code === 'auth/invalid-credentials' ||
+    msg.indexOf('wrong-password') !== -1 ||
+    msg.indexOf('user-not-found') !== -1 ||
+    msg.indexOf('invalid-credential') !== -1
+  ) {
+    return 'Incorrect email or password.';
+  }
+  if (code === 'auth/email-already-in-use' || msg.indexOf('email-already-in-use') !== -1) {
+    return 'Email already in use.';
+  }
+  if (code === 'auth/weak-password' || msg.indexOf('weak-password') !== -1) {
+    return 'Password is too weak. Use at least 8 characters.';
+  }
+  if (code === 'auth/too-many-requests' || msg.indexOf('too-many-requests') !== -1) {
+    return 'Too many attempts. Please wait a moment and try again.';
+  }
+  if (code === 'auth/network-request-failed' || msg.indexOf('network') !== -1) {
+    return 'Network error. Check your connection and try again.';
+  }
+  if (context === 'verify') {
+    return 'Could not send verification email. Try again in a moment.';
+  }
+  if (context === 'profile') {
+    return 'Could not save your username. Please try again.';
+  }
+  if (context === 'reset') {
+    return 'Could not send password reset email. Try again in a moment.';
+  }
+  if (msg) {
+    return 'Something went wrong. Please try again.';
+  }
+  return 'Something went wrong. Please try again.';
+}
+
+function isReasonableEmailFormat(email) {
+  if (!email || typeof email !== 'string') return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function enterSpikeCoachAfterAuth() {
+  var user = window.firebaseAuth && window.firebaseAuth.currentUser;
+  if (!user) return;
+  if (user.emailVerified) {
+    showLoggedInScreen();
+  } else {
+    showEmailVerificationScreen({ email: user.email || '' });
+  }
+}
+
+var spikeCoachAuthBootstrapped = false;
+var spikeCoachSignOutRequested = false;
+var spikeCoachAuthNullLogoutTimer = null;
+var spikeCoachInitialAuthFallbackTimer = null;
+
+function isSpikeCoachTestingModeEnabled() {
+  try {
+    return localStorage.getItem('spikecoach_testing_mode') === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function startUnauthenticatedEntry() {
+  if (
+    document.querySelector('.login-container') ||
+    document.querySelector('.products-screen') ||
+    document.querySelector('.testing-screen')
+  ) {
+    return;
+  }
+  if (!document.querySelector('.landing-page')) {
+    restoreLandingPage();
+    return;
+  }
+  var btn = document.getElementById('getStartedBtn');
+  if (btn && !btn.dataset.spikeCoachBound) {
+    btn.dataset.spikeCoachBound = '1';
+    btn.addEventListener('click', showGetStartedScreen);
+  }
+  if (window.gsap) {
+    orchestrateIntroSequence();
+  } else {
+    animateLanding();
+  }
+}
+
+function clearSpikeCoachAuthNullLogoutTimer() {
+  if (spikeCoachAuthNullLogoutTimer) {
+    clearTimeout(spikeCoachAuthNullLogoutTimer);
+    spikeCoachAuthNullLogoutTimer = null;
+  }
+}
+
+function isSpikeCoachMainAppVisible() {
+  return !!document.querySelector('.products-screen');
+}
+
+function isSpikeCoachPostLoginFlowVisible() {
+  return !!(
+    document.querySelector('.onboarding-container') ||
+    document.querySelector('.welcome-container')
+  );
+}
+
+function bootstrapSpikeCoachAuth(user) {
+  if (spikeCoachAuthBootstrapped) {
+    return;
+  }
+  spikeCoachAuthBootstrapped = true;
+  if (spikeCoachInitialAuthFallbackTimer) {
+    clearTimeout(spikeCoachInitialAuthFallbackTimer);
+    spikeCoachInitialAuthFallbackTimer = null;
+  }
+  if (isSpikeCoachTestingModeEnabled()) {
+    showTestingScreen();
+    return;
+  }
+  var resolvedUser = user || (window.firebaseAuth && window.firebaseAuth.currentUser);
+  if (resolvedUser && resolvedUser.emailVerified) {
+    showMainApp();
+    return;
+  }
+  if (resolvedUser && !resolvedUser.emailVerified) {
+    showEmailVerificationScreen({ email: resolvedUser.email || '' });
+    return;
+  }
+  startUnauthenticatedEntry();
+}
+
+function scheduleInitialAuthFallback() {
+  if (spikeCoachAuthBootstrapped || spikeCoachInitialAuthFallbackTimer) {
+    return;
+  }
+  spikeCoachInitialAuthFallbackTimer = setTimeout(function() {
+    spikeCoachInitialAuthFallbackTimer = null;
+    if (spikeCoachAuthBootstrapped) {
+      return;
+    }
+    var current = window.firebaseAuth && window.firebaseAuth.currentUser;
+    bootstrapSpikeCoachAuth(current);
+  }, 1200);
+}
+
+function armInitialAuthSafetyTimeout() {
+  var ready = window.firebaseAuthReady;
+  if (!ready || typeof ready.then !== 'function') {
+    scheduleInitialAuthFallback();
+    return;
+  }
+  ready.then(function() {
+    scheduleInitialAuthFallback();
+    setTimeout(function() {
+      if (!spikeCoachAuthBootstrapped) {
+        bootstrapSpikeCoachAuth(window.firebaseAuth && window.firebaseAuth.currentUser);
+      }
+    }, 5000);
+  }).catch(function() {
+    if (!spikeCoachAuthBootstrapped) {
+      bootstrapSpikeCoachAuth(null);
+    }
+  });
+}
+
+armInitialAuthSafetyTimeout();
+
+window.spikeCoachOnAuthStateChanged = function(user) {
+  if (!spikeCoachAuthBootstrapped) {
+    if (!user && window.firebaseAuth && !window.firebaseAuth.currentUser) {
+      scheduleInitialAuthFallback();
+      return;
+    }
+    bootstrapSpikeCoachAuth(user);
+    return;
+  }
+
+  clearSpikeCoachAuthNullLogoutTimer();
+
+  if (user) {
+    if (user.emailVerified) {
+      if (isSpikeCoachMainAppVisible()) {
+        updateSpikeCoachUsernameInUI(getSpikeCoachDisplayName(user));
+      } else if (!document.getElementById('goodbyeText') && !isSpikeCoachPostLoginFlowVisible()) {
+        showMainApp();
+      }
+    } else if (!isSpikeCoachMainAppVisible() && !document.querySelector('.login-container')) {
+      showEmailVerificationScreen({ email: user.email || '' });
+    }
+    return;
+  }
+
+  if (document.getElementById('goodbyeText')) {
+    return;
+  }
+  if (spikeCoachSignOutRequested) {
+    spikeCoachSignOutRequested = false;
+    return;
+  }
+  if (!isSpikeCoachMainAppVisible()) {
+    return;
+  }
+
+  spikeCoachAuthNullLogoutTimer = setTimeout(function() {
+    spikeCoachAuthNullLogoutTimer = null;
+    var stillSignedIn = window.firebaseAuth && window.firebaseAuth.currentUser;
+    if (stillSignedIn) {
+      return;
+    }
+    if (!isSpikeCoachMainAppVisible()) {
+      return;
+    }
+    showGetStartedScreen();
+  }, 1000);
+};
+
+var mainWindowVisible = true;
+
+function syncBackgroundVideo() {
+  var video = document.getElementById('bgVideo');
+  if (!video) return;
+  var pageVisible = typeof document.visibilityState !== 'string' || document.visibilityState !== 'hidden';
+  if (pageVisible && mainWindowVisible) {
+    var playAttempt = video.play();
+    if (playAttempt && typeof playAttempt.catch === 'function') playAttempt.catch(function() {});
+  } else {
+    video.pause();
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', syncBackgroundVideo);
+}
+if (window.overwolf && overwolf.windows && overwolf.windows.onStateChanged) {
+  overwolf.windows.onStateChanged.addListener(function(event) {
+    if (!event || event.window_name !== 'MainWindow') return;
+    var state = event.window_state_ex || event.window_state;
+    mainWindowVisible = state === 'normal' || state === 'maximized';
+    syncBackgroundVideo();
+  });
+}
+
+function markVerificationEmailSent() {
+  verificationResendAvailableAt = Date.now() + VERIFICATION_RESEND_COOLDOWN_MS;
+}
+
+function showEmailVerificationScreen(options) {
+  options = options || {};
+  var displayEmail = options.email || '';
+  if (!displayEmail && window.firebaseAuth && window.firebaseAuth.currentUser) {
+    displayEmail = window.firebaseAuth.currentUser.email || '';
+  }
+
+  document.body.innerHTML = `
+    <div class="login-container">
+      <div class="video-wrap">
+        <video id="bgVideo" class="bg-video" autoplay muted playsinline loop>
+          <source src="Valorant Background.mp4" type="video/mp4">
+        </video>
+      </div>
+      <form class="login-form signup-form-compact" onsubmit="return false;">
+        <h2>Verify your email</h2>
+        <p class="verify-info">We sent a verification email to your inbox. Verify your email before continuing.${displayEmail ? '<br><br><strong style="color:#e8eaed;font-weight:600;">' + displayEmail.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</strong>' : ''}</p>
+        <div id="verifyMsg" class="auth-msg" aria-live="polite" style="margin-top:10px;color:#ff6b6b"></div>
+        <div class="verify-actions">
+          <button id="resendVerifyBtn" type="button" class="secondary-btn">Resend verification email</button>
+          <button id="verifiedCheckBtn" type="button" class="signup-btn">I've verified my email</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  syncBackgroundVideo();
+
+  var verifyMsg = document.getElementById('verifyMsg');
+  var resendBtn = document.getElementById('resendVerifyBtn');
+  var verifiedBtn = document.getElementById('verifiedCheckBtn');
+  var cooldownTimer = null;
+
+  function setVerifyMessage(text, isInfo) {
+    if (!verifyMsg) return;
+    verifyMsg.textContent = text || '';
+    verifyMsg.style.display = text ? '' : 'none';
+    verifyMsg.classList.toggle('info-msg', !!isInfo);
+  }
+
+  if (options.initialError) {
+    setVerifyMessage(options.initialError, false);
+  } else if (options.initialInfo) {
+    setVerifyMessage(options.initialInfo, true);
+  }
+
+  function updateResendCooldownUi() {
+    if (!resendBtn) return;
+    var remainingMs = verificationResendAvailableAt - Date.now();
+    if (remainingMs > 0) {
+      resendBtn.disabled = true;
+      var secs = Math.ceil(remainingMs / 1000);
+      resendBtn.textContent = 'Resend verification email (' + secs + 's)';
+      cooldownTimer = setTimeout(updateResendCooldownUi, 1000);
+    } else {
+      resendBtn.disabled = false;
+      resendBtn.textContent = 'Resend verification email';
+      if (cooldownTimer) {
+        clearTimeout(cooldownTimer);
+        cooldownTimer = null;
+      }
+    }
+  }
+
+  updateResendCooldownUi();
+
+  if (resendBtn) {
+    resendBtn.addEventListener('click', function() {
+      if (Date.now() < verificationResendAvailableAt) return;
+      setVerifyMessage('', false);
+      if (!window.sendUserEmailVerification) {
+        setVerifyMessage('Authentication not initialized.', false);
+        return;
+      }
+      resendBtn.disabled = true;
+      window.sendUserEmailVerification()
+        .then(function() {
+          markVerificationEmailSent();
+          setVerifyMessage('Verification email sent.', true);
+          updateResendCooldownUi();
+        })
+        .catch(function(err) {
+          console.error('Resend verification error:', err);
+          setVerifyMessage(mapFirebaseAuthError(err, 'verify'), false);
+          updateResendCooldownUi();
+        });
+    });
+  }
+
+  if (verifiedBtn) {
+    verifiedBtn.addEventListener('click', function() {
+      setVerifyMessage('', false);
+      if (!window.reloadFirebaseUser) {
+        setVerifyMessage('Authentication not initialized.', false);
+        return;
+      }
+      verifiedBtn.disabled = true;
+      window.reloadFirebaseUser()
+        .then(function(user) {
+          verifiedBtn.disabled = false;
+          if (user && user.emailVerified) {
+            setVerifyMessage('', false);
+            showLoggedInScreen();
+          } else {
+            setVerifyMessage('Verification not detected yet. Check your inbox and try again.', false);
+          }
+        })
+        .catch(function(err) {
+          verifiedBtn.disabled = false;
+          console.error('Reload user error:', err);
+          setVerifyMessage(mapFirebaseAuthError(err), false);
+        });
+    });
+  }
+
+  if (window.gsap) {
+    animateLoginElements();
+  }
+}
+
+function showPasswordResetScreen() {
+  document.body.innerHTML = `
+    <div class="login-container">
+      <div class="video-wrap">
+        <video id="bgVideo" class="bg-video" autoplay muted playsinline loop>
+          <source src="Valorant Background.mp4" type="video/mp4">
+        </video>
+      </div>
+      <form class="login-form signup-form-compact" onsubmit="return false;">
+        <h2>Reset password</h2>
+        <p class="verify-info">Enter your account email and we will send a password reset link.</p>
+        <input id="resetEmail" type="email" placeholder="Email" class="login-input" required>
+        <div id="resetMsg" class="auth-msg" aria-live="polite" style="margin-top:10px;color:#ff6b6b"></div>
+        <button id="sendResetBtn" type="button" class="signup-btn">Send reset email</button>
+        <div class="alt-action">
+          <button id="backToLoginFromReset" type="button" class="secondary-btn">Back to Log in</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  syncBackgroundVideo();
+
+  var resetEmail = document.getElementById('resetEmail');
+  var resetMsg = document.getElementById('resetMsg');
+  var sendResetBtn = document.getElementById('sendResetBtn');
+  var backBtn = document.getElementById('backToLoginFromReset');
+
+  function setResetMessage(text, isInfo) {
+    if (!resetMsg) return;
+    resetMsg.textContent = text || '';
+    resetMsg.style.display = text ? '' : 'none';
+    resetMsg.classList.toggle('info-msg', !!isInfo);
+  }
+
+  function submitReset() {
+    setResetMessage('', false);
+    var email = resetEmail && resetEmail.value ? resetEmail.value.trim() : '';
+    if (!email) {
+      setResetMessage('Please enter your email address.', false);
+      return;
+    }
+    if (!isReasonableEmailFormat(email)) {
+      setResetMessage('Invalid email address.', false);
+      return;
+    }
+    if (!window.sendPasswordReset) {
+      setResetMessage('Authentication not initialized.', false);
+      return;
+    }
+    sendResetBtn.disabled = true;
+    window.sendPasswordReset(email)
+      .then(function() {
+        sendResetBtn.disabled = false;
+        setResetMessage('If an account exists for that email, a password reset email has been sent.', true);
+      })
+      .catch(function(err) {
+        sendResetBtn.disabled = false;
+        console.error('Password reset error:', err);
+        setResetMessage(mapFirebaseAuthError(err, 'reset'), false);
+      });
+  }
+
+  if (sendResetBtn) {
+    sendResetBtn.addEventListener('click', submitReset);
+  }
+  if (resetEmail) {
+    resetEmail.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitReset();
+      }
+    });
+  }
+  if (backBtn) {
+    backBtn.addEventListener('click', showLoginScreen);
+  }
+  if (window.gsap) {
+    animateLoginElements();
+  }
+}
+
 function showGetStartedScreen() {
   document.body.innerHTML = `
     <div class="login-container">
@@ -21,6 +540,8 @@ function showGetStartedScreen() {
       </form>
     </div>
   `;
+
+  syncBackgroundVideo();
 
   var password = document.getElementById('password');
   var hint = document.getElementById('pwdHint');
@@ -70,7 +591,19 @@ function showGetStartedScreen() {
       authMsg.textContent = '';
       authMsg.style.display = 'none';
     }
-    if (username.value && email.value && password.value.length >= 8) {
+    if (authMsg) {
+      authMsg.textContent = '';
+      authMsg.style.display = 'none';
+    }
+    var usernameValidation = validateSpikeCoachUsername(username.value);
+    if (!usernameValidation.ok) {
+      if (authMsg) {
+        authMsg.style.display = '';
+        authMsg.textContent = usernameValidation.message;
+      }
+      return;
+    }
+    if (email.value && password.value.length >= 8) {
       if (!window.createUser) {
         if (authMsg) {
           authMsg.style.display = '';
@@ -78,8 +611,7 @@ function showGetStartedScreen() {
         }
         return;
       }
-      // capture values then clear inputs immediately per request
-      var _username = username.value.trim();
+      var _username = usernameValidation.name;
       var _email = email.value.trim();
       var _pwd = password.value;
       username.value = '';
@@ -90,42 +622,43 @@ function showGetStartedScreen() {
       window.createUser(_email, _pwd)
         .then(function(userCred) {
           signupBtn.disabled = false;
-          // Save username to localStorage
-          try {
-            localStorage.setItem('spikecoach_username', _username);
-          } catch (e) {
-            console.error('Failed to save username:', e);
-          }
-          // Clear any error messages immediately on success
           if (authMsg) {
             authMsg.textContent = '';
             authMsg.style.display = 'none';
           }
-          // ensure signed in: try signInUser if available, otherwise rely on auth state change
-          if (window.signInUser) {
-            return window.signInUser(_email, _pwd).then(function() { 
-              // Clear message again before transitioning
-              if (authMsg) {
-                authMsg.textContent = '';
-                authMsg.style.display = 'none';
-              }
-              showLoggedInScreen(); 
-            }).catch(function(signInErr) {
-              // If signIn fails, show error but this shouldn't happen normally
-              signupBtn.disabled = false;
-              if (authMsg) {
-                authMsg.style.display = '';
-                authMsg.textContent = signInErr.message || 'Sign in failed';
-              }
+          if (!window.updateUserDisplayName) {
+            showEmailVerificationScreen({
+              email: _email,
+              initialError: 'Authentication not initialized.'
             });
+            return;
           }
-          // fallback: show logged-in UI
-          // Clear message before transitioning
-          if (authMsg) {
-            authMsg.textContent = '';
-            authMsg.style.display = 'none';
-          }
-          showLoggedInScreen();
+          return window.updateUserDisplayName(userCred.user, _username)
+            .then(function() {
+              if (!window.sendUserEmailVerification) {
+                showEmailVerificationScreen({ email: _email, initialError: 'Authentication not initialized.' });
+                return;
+              }
+              return window.sendUserEmailVerification(userCred.user)
+                .then(function() {
+                  markVerificationEmailSent();
+                  showEmailVerificationScreen({ email: _email });
+                })
+                .catch(function(sendErr) {
+                  console.error('Verification email send error:', sendErr);
+                  showEmailVerificationScreen({
+                    email: _email,
+                    initialError: mapFirebaseAuthError(sendErr, 'verify')
+                  });
+                });
+            })
+            .catch(function(profileErr) {
+              console.error('Profile update error:', profileErr);
+              showEmailVerificationScreen({
+                email: _email,
+                initialError: mapFirebaseAuthError(profileErr, 'profile')
+              });
+            });
         })
         .catch(function(err) {
           // log raw error for debugging
@@ -154,53 +687,35 @@ function showGetStartedScreen() {
             return window.signInUser(_email, _pwd)
               .then(function() {
                 signupBtn.disabled = false;
-                // Clear message before transitioning
                 if (authMsg) {
                   authMsg.textContent = '';
                   authMsg.style.display = 'none';
                 }
-                showLoggedInScreen();
+                enterSpikeCoachAfterAuth();
               })
               .catch(function(signInErr) {
                 signupBtn.disabled = false;
                 console.error('Sign in after signup attempt failed:', signInErr);
-                var sCode = (signInErr && signInErr.code) || '';
-                var sMsg = (signInErr && signInErr.message) || '';
                 if (authMsg) {
                   authMsg.style.display = '';
-                  if (sCode === 'auth/wrong-password' || sCode === 'auth/user-not-found' || sMsg.indexOf('wrong-password') !== -1 || sMsg.indexOf('user-not-found') !== -1) {
-                    authMsg.textContent = 'Incorrect Email or Password';
-                  } else {
-                    authMsg.textContent = signInErr.message || 'Sign in failed';
-                  }
+                  authMsg.textContent = mapFirebaseAuthError(signInErr);
                 }
               });
           }
 
-          // If we didn't attempt sign-in, map common createUser errors to friendly messages
           signupBtn.disabled = false;
           if (authMsg) {
             authMsg.style.display = '';
-            if (code === 'auth/email-already-in-use' || msg.indexOf('email-already-in-use') !== -1) {
-              authMsg.textContent = 'Email already in use';
-            } else if (code === 'auth/weak-password' || msg.indexOf('weak-password') !== -1) {
-              authMsg.textContent = 'Password is too weak';
-            } else if (code === 'auth/invalid-email' || msg.indexOf('invalid-email') !== -1 || msg.indexOf('invalid email') !== -1) {
-              authMsg.textContent = 'Invalid Email';
-            } else if (code === 'auth/invalid-credential' || msg.indexOf('invalid-credential') !== -1 || msg.indexOf('invalid credential') !== -1) {
-              authMsg.textContent = 'Incorrect Email or Password';
-            } else {
-              authMsg.textContent = err.message || 'Sign up failed';
-            }
+            authMsg.textContent = mapFirebaseAuthError(err);
           }
         });
     } else {
       if (authMsg) {
         authMsg.style.display = '';
-        if (!username.value) {
-          authMsg.textContent = 'Please enter a username.';
-        } else {
+        if (!email.value || password.value.length < 8) {
           authMsg.textContent = 'Please enter a valid email and a password with at least 8 characters.';
+        } else {
+          authMsg.textContent = validateSpikeCoachUsername(username.value).message;
         }
       }
     }
@@ -224,6 +739,7 @@ function showLoginScreen() {
         <input id="passwordL" type="password" placeholder="Password" class="login-input" required>
         <div id="authMsgL" class="auth-msg" aria-live="polite" style="margin-top:10px;color:#ff6b6b"></div>
   <button id="signinBtn" type="button" class="signup-btn">Log in</button>
+        <button id="forgotPwdBtn" type="button" class="text-link-btn">Forgot password?</button>
         <div class="alt-action">
           <label class="alt-label">Don't have an account?</label>
           <button id="backToSignup" type="button" class="secondary-btn">Sign Up</button>
@@ -232,11 +748,20 @@ function showLoginScreen() {
     </div>
   `;
 
+  syncBackgroundVideo();
+
   var signinBtn = document.getElementById('signinBtn');
   var backTo = document.getElementById('backToSignup');
   var emailL = document.getElementById('emailL');
   var passwordL = document.getElementById('passwordL');
   var authMsgL = document.getElementById('authMsgL');
+  var forgotPwdBtn = document.getElementById('forgotPwdBtn');
+
+  if (forgotPwdBtn) {
+    forgotPwdBtn.addEventListener('click', function() {
+      showPasswordResetScreen();
+    });
+  }
 
   signinBtn.addEventListener('click', function() {
     if (authMsgL) {
@@ -260,39 +785,18 @@ function showLoginScreen() {
       window.signInUser(_emailL, _pwdL)
         .then(function() {
           signinBtn.disabled = false;
-          // Clear message before transitioning
           if (authMsgL) {
             authMsgL.textContent = '';
             authMsgL.style.display = 'none';
           }
-          showLoggedInScreen();
+          enterSpikeCoachAfterAuth();
         })
         .catch(function(err) {
           signinBtn.disabled = false;
-          // log raw error for debugging
           console.error('Sign in error:', err);
-          var code = (err && err.code) || '';
-          var msg = (err && err.message) || '';
-          // map a set of auth failure codes/messages to a single friendly message
           if (authMsgL) {
             authMsgL.style.display = '';
-            if (
-              code === 'auth/wrong-password' ||
-              code === 'auth/user-not-found' ||
-              code === 'auth/invalid-email' ||
-              code === 'auth/invalid-credential' ||
-              code === 'auth/invalid-credentials' ||
-              msg.indexOf('wrong-password') !== -1 ||
-              msg.indexOf('user-not-found') !== -1 ||
-              msg.indexOf('invalid-email') !== -1 ||
-              msg.indexOf('invalid-credential') !== -1 ||
-              msg.indexOf('invalid credential') !== -1
-            ) {
-              authMsgL.textContent = 'Incorrect Email or Password';
-            } else {
-              // fallback: show raw message if available, but keep raw error visible in console
-              authMsgL.textContent = err.message || 'Sign in failed';
-            }
+            authMsgL.textContent = mapFirebaseAuthError(err);
           }
         });
     } else {
@@ -442,21 +946,14 @@ function showOnboarding(page) {
 
 function showMainApp() {
   var userEmail = '';
-  var userInitial = 'U';
-  var userName = 'TestUser';
-  
+  var userInitial = getSpikeCoachUserInitial();
+  var userName = getSpikeCoachDisplayName();
+
   try {
     if (window.firebaseAuth && window.firebaseAuth.currentUser) {
       userEmail = window.firebaseAuth.currentUser.email || '';
-      if (userEmail && userEmail.length > 0) {
-        userInitial = userEmail.charAt(0).toUpperCase();
-      }
-    }
-    // Retrieve username from localStorage
-    var storedUsername = localStorage.getItem('spikecoach_username');
-    if (storedUsername) {
-      userName = storedUsername;
-      userInitial = userName.charAt(0).toUpperCase();
+      userName = getSpikeCoachDisplayName(window.firebaseAuth.currentUser);
+      userInitial = getSpikeCoachUserInitial(window.firebaseAuth.currentUser);
     }
   } catch (e) {}
   
@@ -499,11 +996,11 @@ function showMainApp() {
               <div class="dropdown-email">${userEmail || 'user@example.com'}</div>
             </div>
             <div class="dropdown-divider"></div>
-            <div class="dropdown-row">Profile</div>
-            <div class="dropdown-row">Settings</div>
-            <div class="dropdown-row">Tutorial</div>
-            <div class="dropdown-row">Help</div>
-            <div class="dropdown-row" id="signoutRow">Sign out</div>
+            <div class="dropdown-row" data-profile-section="profile">Profile</div>
+            <div class="dropdown-row" data-profile-section="settings">Settings</div>
+            <div class="dropdown-row" data-profile-section="help">Help</div>
+            <div class="dropdown-divider dropdown-divider-bottom"></div>
+            <div class="dropdown-row dropdown-row-danger" id="signoutRow">Sign out</div>
           </div>
         </div>
       </nav>
@@ -512,10 +1009,105 @@ function showMainApp() {
           <h1 class="welcome-title">Welcome to SpikeCoach</h1>
           <p class="welcome-subtitle">${userEmail ? 'Signed in as ' + userEmail : 'You are now logged in.'}</p>
           <button class="spikecoach-tab-btn" id="spikecoachTabBtn">Open SpikeCoach Tab</button>
+          <p class="riot-disclaimer">SpikeCoach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>
         </div>
         <div class="whats-new-section" id="whatsNewSection">
-          <h1 class="whats-new-title">What's New</h1>
-          <p class="whats-new-subtitle">Latest updates and features</p>
+          <article class="whats-new-blog">
+            <header class="whats-new-blog-header">
+              <span class="whats-new-eyebrow">SpikeCoach Blog</span>
+              <h1 class="whats-new-title">What's New</h1>
+              <p class="whats-new-subtitle">A note from the SpikeCoach team</p>
+              <p class="whats-new-meta">Your Video Game Companion &mdash; built to help you improve</p>
+            </header>
+            <div class="whats-new-body">
+              <div class="whats-new-lede-wrap">
+                <div class="whats-new-author">
+                  <img src="spikecoach_emblem.png" alt="SpikeCoach" class="whats-new-author-logo">
+                  <span class="whats-new-author-name">opsunday</span>
+                </div>
+                <p class="whats-new-lede">
+                  SpikeCoach is more than a dashboard. It is a full training hub that follows you from agent select to post-match review &mdash; with a live in-game companion that opens when you are in Valorant. Here is everything you can use today.
+                </p>
+              </div>
+
+              <div class="whats-new-grid">
+                <section class="whats-new-block whats-new-block--wide whats-new-block--feature">
+                  <span class="whats-new-tag">In-game</span>
+                  <h2 class="whats-new-heading">In-game SpikeCoach Tab</h2>
+                  <p>
+                    When a match is running, SpikeCoach can open a dedicated in-game window centered on your screen. No alt-tabbing through browsers &mdash; just quick access while you play.
+                  </p>
+                  <ul class="whats-new-list">
+                    <li><strong>My Stats</strong> &mdash; Live read on your performance as the round unfolds.</li>
+                    <li><strong>Scoreboard</strong> &mdash; Team and player snapshot so you always know the state of the game.</li>
+                    <li><strong>Recommendations</strong> &mdash; After the match, rule-based coaching picks up to five focused takeaways from data recorded during the game.</li>
+                  </ul>
+                  <p class="whats-new-tip">From the home screen, use <strong>Open SpikeCoach Tab</strong> to bring the window up anytime you want it visible.</p>
+                </section>
+
+                <section class="whats-new-block">
+                  <span class="whats-new-tag">Learn</span>
+                  <h2 class="whats-new-heading">Line-ups</h2>
+                  <p>
+                    Pick your agent, choose a map, and study line-ups to sharpen your utility. Whether you are learning a new setup or refreshing a classic, Line-ups keeps strats one click away in the top bar.
+                  </p>
+                </section>
+
+                <section class="whats-new-block">
+                  <span class="whats-new-tag">Plan</span>
+                  <h2 class="whats-new-heading">Strategy Planner</h2>
+                  <p>
+                    Plan executes before you queue. Select a map, assign agents to Blue and Red, draw movement and utility on the minimap, and download your strategy to share with your stack.
+                  </p>
+                </section>
+
+                <section class="whats-new-block">
+                  <span class="whats-new-tag">Ask</span>
+                  <h2 class="whats-new-heading">AI Coach</h2>
+                  <p>
+                    Your personal Valorant strategist lives in the main app. Ask about agents, maps, roles, or how to climb &mdash; clear answers tuned for improvement, not fluff.
+                  </p>
+                </section>
+
+                <section class="whats-new-block">
+                  <span class="whats-new-tag">Review</span>
+                  <h2 class="whats-new-heading">Match History</h2>
+                  <p>
+                    The <strong>Past Games</strong> tab helps you scroll through recent matches, scan results and stats at a glance, and drill into details when you want a closer look.
+                  </p>
+                </section>
+
+                <section class="whats-new-block">
+                  <span class="whats-new-tag">Play</span>
+                  <h2 class="whats-new-heading">Guess the Rank</h2>
+                  <p>
+                    Train your eye for rank differences. Watch a clip, pick Iron through Radiant (with sub-ranks where it matters), and track your score as you go.
+                  </p>
+                </section>
+
+                <section class="whats-new-block">
+                  <span class="whats-new-tag">Account</span>
+                  <h2 class="whats-new-heading">Accounts you can trust</h2>
+                  <p>
+                    Sign up and log in with email and password. New accounts verify their email before full access, and password reset is built in. Sessions are secured with Firebase Authentication.
+                  </p>
+                </section>
+
+                <section class="whats-new-block whats-new-block--wide whats-new-block--roadmap">
+                  <span class="whats-new-tag whats-new-tag--muted">Coming soon</span>
+                  <h2 class="whats-new-heading">On the horizon</h2>
+                  <p>
+                    <strong>Analyze</strong> is on the way: deeper, mistake-by-mistake breakdowns so you know not just what happened, but what to do differently next round. More line-ups and sharing features are on the roadmap too.
+                  </p>
+                </section>
+              </div>
+
+              <footer class="whats-new-signoff">
+                <p>Thanks for climbing with us. Queue up, open the tab, and let SpikeCoach help you play smarter.</p>
+                <p class="whats-new-team">&mdash; The SpikeCoach Team</p>
+              </footer>
+            </div>
+          </article>
         </div>
         <div class="blank-section" id="lineupsSection">
           <div class="agent-select-container">
@@ -576,6 +1168,10 @@ function showMainApp() {
               <div class="agent-card" data-agent="Killjoy">
                 <img src="Agent_Icons/Killjoy_icon.webp" alt="Killjoy" class="agent-icon">
                 <span class="agent-name">Killjoy</span>
+              </div>
+              <div class="agent-card" data-agent="Miks">
+                <img src="Agent_Icons/Miks_icon.webp" alt="Miks" class="agent-icon">
+                <span class="agent-name">Miks</span>
               </div>
               <div class="agent-card" data-agent="Neon">
                 <img src="Agent_Icons/Neon_icon.webp" alt="Neon" class="agent-icon">
@@ -737,8 +1333,16 @@ function showMainApp() {
         <div class="blank-section" id="pastGamesSection">
           <div class="past-games-container">
             <h2 class="past-games-title">Match History</h2>
-            <div class="past-games-list" id="pastGamesList">
-              <!-- Games will be dynamically inserted here -->
+            <div class="past-games-stage">
+              <div class="past-games-list" id="pastGamesList" aria-hidden="true">
+                <!-- Games will be dynamically inserted here (preview only) -->
+              </div>
+              <div class="past-games-coming-soon" role="note">
+                <div class="past-games-coming-soon-inner">
+                  <span class="past-games-coming-soon-label">Coming Soon</span>
+                  <p class="past-games-coming-soon-text">Gain valuable insights from past games and look at how you did using our custom performance score.</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -813,6 +1417,9 @@ function showMainApp() {
               </aside>
               <div class="strategy-board">
                 <div class="strategy-board-actions">
+                  <button type="button" class="strategy-spike-source" id="strategySpikeSource" title="Drag the Spike onto the map · drag it off the map to remove" aria-label="Spike. Drag onto the map.">
+                    <img src="Other_images/Spike_nobg.png" alt="Spike" draggable="false">
+                  </button>
                   <button type="button" class="strategy-download-btn" id="strategyDownloadBtn">Download Strategy</button>
                 </div>
                 <div class="minimap-container strategy-minimap" id="strategyExportRoot">
@@ -864,7 +1471,11 @@ function showMainApp() {
                 <p>Hey! I'm your AI Coach. Ask me anything about Valorant - agents, maps, strategies, or how to improve your gameplay!</p>
               </div>
             </div>
-            <div class="ai-chat-input-area">
+            <div class="ai-chat-input-area" id="aiChatInputArea">
+              <p class="ai-chat-match-notice" id="aiChatMatchNotice" hidden>
+                AI Coach is unavailable during an active VALORANT match.
+                <span class="ai-chat-match-notice-sub">AI Coach becomes available again after the match ends.</span>
+              </p>
               <input type="text" id="aiChatInput" placeholder="Ask me anything about Valorant..." maxlength="250">
               <button id="aiChatSend">Send</button>
             </div>
@@ -892,7 +1503,18 @@ function showMainApp() {
             </div>
             <div class="guess-rank-middle-row">
               <div class="guess-video-placeholder" id="guessRankVideoPlaceholder">
-                <span>Video Placeholder</span>
+                <div class="guess-youtube-embed" id="guessRankYoutubeEmbed">
+                  <iframe
+                    id="guessRankYoutubeFrame"
+                    class="guess-youtube-frame"
+                    src="about:blank"
+                    title="Guess the Rank clip"
+                    allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen
+                    referrerpolicy="strict-origin-when-cross-origin"
+                  ></iframe>
+                </div>
+                <p class="guess-rank-message" id="guessRankMessage" hidden aria-live="polite"></p>
               </div>
               <div class="guess-rank-icons" id="guessRankBaseRanks">
                 <button class="guess-rank-icon-card" data-rank="Iron" data-has-subranks="true"><img src="Rank_Icons/Iron_1_Rank.webp" alt="Iron"><span>Iron</span></button>
@@ -907,9 +1529,14 @@ function showMainApp() {
               </div>
             </div>
             <div class="guess-subrank-panel" id="guessSubrankPanel" aria-live="polite"></div>
+            <div class="guess-rank-result" id="guessRankResult" hidden></div>
+            <button type="button" class="guess-rank-next-btn" id="guessRankNextBtn" hidden>Next Clip</button>
           </div>
         </div>
       </div>
+      <button type="button" class="home-screen-fab" id="homeScreenFab" aria-label="Back to home">
+        <img src="Other_images/redhouseicon.png" alt="" class="home-screen-fab-icon">
+      </button>
     </div>
   `;
   
@@ -950,6 +1577,8 @@ function showMainApp() {
   
   if (signoutRow) {
     signoutRow.addEventListener('click', function() {
+      spikeCoachSignOutRequested = true;
+      clearSpikeCoachAuthNullLogoutTimer();
       if (window.signOutUser) {
         window.signOutUser().then(function() { showGoodbyeAnimation(); }).catch(function() { showGoodbyeAnimation(); });
       } else {
@@ -958,14 +1587,14 @@ function showMainApp() {
     });
   }
   
-  // Add click handler for Profile dropdown row
-  var profileRows = document.querySelectorAll('.dropdown-row');
-  if (profileRows.length > 0) {
-    // Profile is the first dropdown row after the user info section
-    profileRows[0].addEventListener('click', function() {
-      showProfileOverlay();
+  // Profile / Settings / Help rows open the profile overlay on the matching page
+  document.querySelectorAll('.dropdown-row[data-profile-section]').forEach(function(row) {
+    row.addEventListener('click', function() {
+      if (profileDropdown) profileDropdown.classList.remove('open');
+      if (profileArrow) profileArrow.textContent = '▼';
+      showProfileOverlay(row.getAttribute('data-profile-section'));
     });
-  }
+  });
   
   // Apply saved profile color
   var savedColor = localStorage.getItem('spikecoach_profile_color');
@@ -1021,6 +1650,20 @@ function showMainApp() {
       }
     }
   }
+
+  function goToWelcomeHome() {
+    document.querySelectorAll('.taskbar-item').forEach(function(i) { i.classList.remove('active'); });
+    showSection('welcomeSection');
+    var mainContent = document.getElementById('mainContent');
+    if (mainContent) {
+      mainContent.scrollTop = 0;
+    }
+  }
+
+  var homeScreenFab = document.getElementById('homeScreenFab');
+  if (homeScreenFab) {
+    homeScreenFab.addEventListener('click', goToWelcomeHome);
+  }
   
   // Logo click handler - show What's New
   var navbarLogo = document.getElementById('navbarLogo');
@@ -1049,13 +1692,11 @@ function showMainApp() {
   var spikeTabVisible = false;
   var spikeTabOpening = false;
   var spikeTabGeneration = 0;
-
-  function isSpikeCoachTabOpen() {
-    return spikeTabVisible || spikeTabOpening;
-  }
+  var currentSpikeCoachMatchId = null;
+  var hasAutoOpenedForCurrentMatch = false;
+  var spikeCoachMatchLive = false;
 
   function closeSpikeCoachTab() {
-    console.log('[SpikeCoach GEP] closeSpikeCoachTab() called');
     spikeTabGeneration += 1;
     spikeTabVisible = false;
     spikeTabOpening = false;
@@ -1068,8 +1709,56 @@ function showMainApp() {
     });
   }
 
+  function showSpikeCoachWindow(reason) {
+    console.log('[SpikeCoach Window] Show requested: ' + reason);
+    openSpikeCoachTab();
+  }
+
+  function hideSpikeCoachWindow(reason) {
+    console.log('[SpikeCoach Window] Hide requested: ' + reason);
+    closeSpikeCoachTab();
+  }
+
+  function toggleSpikeCoachWindow() {
+    if (!window.overwolf || !overwolf.windows || !overwolf.windows.obtainDeclaredWindow) return;
+    overwolf.windows.obtainDeclaredWindow(SPIKE_TAB_WINDOW, function (result) {
+      var win = result && result.window;
+      var state = win && (win.stateEx || win.state || '');
+      var shown = state === 'normal' || state === 'maximized';
+      if (shown) hideSpikeCoachWindow('hotkey');
+      else showSpikeCoachWindow('hotkey');
+    });
+  }
+
+  function readSpikeCoachMatchId(matchInfo) {
+    if (!matchInfo) return null;
+    var id = matchInfo.match_id || matchInfo.pseudo_match_id;
+    if (id == null || id === '') return null;
+    return String(id);
+  }
+
+  function autoOpenSpikeCoachForMatch(matchId) {
+    if (matchId && currentSpikeCoachMatchId && matchId !== currentSpikeCoachMatchId) {
+      currentSpikeCoachMatchId = matchId;
+      hasAutoOpenedForCurrentMatch = false;
+      console.log('[SpikeCoach Window] New match detected');
+    } else if (matchId && !currentSpikeCoachMatchId) {
+      currentSpikeCoachMatchId = matchId;
+    }
+    if (hasAutoOpenedForCurrentMatch) return;
+    hasAutoOpenedForCurrentMatch = true;
+    spikeCoachMatchLive = true;
+    showSpikeCoachWindow('match-start-auto');
+  }
+
+  function noteNewSpikeCoachMatch() {
+    currentSpikeCoachMatchId = null;
+    hasAutoOpenedForCurrentMatch = false;
+    spikeCoachMatchLive = true;
+    console.log('[SpikeCoach Window] New match detected');
+  }
+
   function openSpikeCoachTab() {
-    console.log('[SpikeCoach GEP] openSpikeCoachTab() called');
     if (!window.overwolf || !overwolf.windows || !overwolf.windows.obtainDeclaredWindow || !overwolf.windows.restore) {
       console.log('[SpikeCoach GEP] overwolf.windows.obtainDeclaredWindow unavailable');
       return;
@@ -1179,8 +1868,40 @@ function showMainApp() {
 
 
   if (spikecoachTabBtn) {
-    spikecoachTabBtn.addEventListener('click', openSpikeCoachTab);
+    spikecoachTabBtn.addEventListener('click', function () {
+      showSpikeCoachWindow('manual-button');
+    });
   }
+
+  window.spikeCoachOverlayControl = {
+    show: showSpikeCoachWindow,
+    hide: hideSpikeCoachWindow,
+    toggle: toggleSpikeCoachWindow
+  };
+
+  var valorantMatchActiveForChat = false;
+  var aiChatRequestInFlight = false;
+
+  function applyMainAiChatMatchLock() {
+    var input = document.getElementById('aiChatInput');
+    var send = document.getElementById('aiChatSend');
+    var area = document.getElementById('aiChatInputArea');
+    var notice = document.getElementById('aiChatMatchNotice');
+    if (!input || !send) return;
+    var matchBlocked = valorantMatchActiveForChat;
+    var controlsLocked = matchBlocked || aiChatRequestInFlight;
+    input.disabled = controlsLocked;
+    send.disabled = controlsLocked;
+    if (area) area.classList.toggle('is-match-blocked', matchBlocked);
+    if (notice) notice.hidden = !matchBlocked;
+  }
+
+  window.spikeCoachSetValorantMatchActive = function(active) {
+    var next = !!active;
+    if (valorantMatchActiveForChat === next) return;
+    valorantMatchActiveForChat = next;
+    applyMainAiChatMatchLock();
+  };
 
   // Valorant match state: open the same SpikeCoach tab on match_start, close it on match_end.
   // Docs: match_start / match_end are events on the match_info feature.
@@ -1220,24 +1941,127 @@ function showMainApp() {
       return !!(gameInfo && gameInfo.isRunning && gameInfo.classId === VALORANT_CLASS_ID);
     }
 
-    var MATCH_INFO_FIELDS = ['map', 'scoreboard', 'round_phase', 'match_score', 'game_mode'];
+    // Live match picture built from onInfoUpdates2 deltas. getInfo is only a baseline fill.
+    var gepLive = { game_info: {}, match_info: {} };
+    var gepPhase = 'awaiting-baseline';
+    var gepBuffer = [];
+    var snapshotRequestId = 0;
+    var lifecycleEpoch = 0;
+    var mainPerf = { infoUpdates: 0, getInfo: 0, snapshotsApplied: 0, snapshotsDropped: 0 };
 
-    function logMatchInfo(source) {
-      var INFO_LOG = '[SpikeCoach GEP getInfo]';
-      overwolf.games.events.getInfo(function(result) {
-        var res = result && result.res;
-        var matchInfo = res && res.match_info ? res.match_info : null;
-        var fields = {};
-        MATCH_INFO_FIELDS.forEach(function(key) {
-          fields[key] = !!(matchInfo && matchInfo[key] != null && matchInfo[key] !== '');
-        });
-        console.log(INFO_LOG, source, 'success:', !!(result && result.success), 'error:', result && result.error);
-        console.log(INFO_LOG, source, 'match_info:', matchInfo);
-        console.log(INFO_LOG, source, 'fields:', fields);
-        if (result && result.success) {
-          syncSpikeCoachTab(res && res.game_info, matchInfo);
-        }
+    function maybeLogMainPerf() {
+      try {
+        if (localStorage.getItem('spikecoach_perf_debug') !== '1') return;
+      } catch (error) {
+        return;
+      }
+      if (mainPerf.infoUpdates % 50 !== 0) return;
+      console.log('[SpikeCoach Perf] main', mainPerf);
+    }
+
+    function bumpLifecycle() {
+      lifecycleEpoch += 1;
+    }
+
+    function resetGepLive() {
+      gepLive = { game_info: {}, match_info: {} };
+      gepBuffer = [];
+      gepPhase = 'awaiting-baseline';
+      snapshotRequestId += 1;
+    }
+
+    function mergeBag(target, source) {
+      if (!source || typeof source !== 'object') return;
+      Object.keys(source).forEach(function(key) {
+        target[key] = source[key];
       });
+    }
+
+    function fillMissing(target, source) {
+      if (!source || typeof source !== 'object') return;
+      Object.keys(source).forEach(function(key) {
+        var current = target[key];
+        if (current == null || current === '') target[key] = source[key];
+      });
+    }
+
+    function absorbGepPayload(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      var info = payload.info;
+      if (info && typeof info === 'object') {
+        if (info.game_info) mergeBag(gepLive.game_info, info.game_info);
+        if (info.match_info) mergeBag(gepLive.match_info, info.match_info);
+      }
+      if (payload.feature && payload.key != null) {
+        var bucket = payload.feature === 'game_info' ? gepLive.game_info
+          : (payload.feature === 'match_info' ? gepLive.match_info : null);
+        if (bucket) bucket[payload.key] = payload.value != null ? payload.value : payload.data;
+      }
+    }
+
+    function updateMainAiChatMatchLock(gameInfoBlock, matchInfo) {
+      if (matchHasEnded(gameInfoBlock, matchInfo)) {
+        if (window.spikeCoachSetValorantMatchActive) window.spikeCoachSetValorantMatchActive(false);
+        return;
+      }
+      var inActiveMatch = !!(gameInfoBlock && gameInfoBlock.state === 'InProgress');
+      if (window.spikeCoachSetValorantMatchActive) window.spikeCoachSetValorantMatchActive(inActiveMatch);
+    }
+
+    function syncFromLive() {
+      updateMainAiChatMatchLock(gepLive.game_info, gepLive.match_info);
+      syncSpikeCoachTab(gepLive.game_info, gepLive.match_info);
+    }
+
+    function requestInitialSnapshot(reason) {
+      if (!overwolf.games.events.getInfo) return;
+      var requestId = ++snapshotRequestId;
+      var epochAtRequest = lifecycleEpoch;
+      gepPhase = 'awaiting-baseline';
+      mainPerf.getInfo += 1;
+      console.log(LOG, 'getInfo snapshot:', reason);
+      overwolf.games.events.getInfo(function(result) {
+        if (requestId !== snapshotRequestId) {
+          mainPerf.snapshotsDropped += 1;
+          return;
+        }
+        if (epochAtRequest !== lifecycleEpoch) {
+          mainPerf.snapshotsDropped += 1;
+          gepPhase = 'live';
+          var skipped = gepBuffer;
+          gepBuffer = [];
+          skipped.forEach(absorbGepPayload);
+          syncFromLive();
+          maybeLogMainPerf();
+          return;
+        }
+        if (gepPhase !== 'awaiting-baseline') {
+          mainPerf.snapshotsDropped += 1;
+          return;
+        }
+        if (result && result.success && result.res) {
+          fillMissing(gepLive.game_info, result.res.game_info);
+          fillMissing(gepLive.match_info, result.res.match_info);
+          mainPerf.snapshotsApplied += 1;
+        }
+        gepPhase = 'live';
+        var pending = gepBuffer;
+        gepBuffer = [];
+        pending.forEach(absorbGepPayload);
+        syncFromLive();
+        maybeLogMainPerf();
+      });
+    }
+
+    function onLiveInfoUpdate(payload) {
+      mainPerf.infoUpdates += 1;
+      if (gepPhase === 'awaiting-baseline') {
+        gepBuffer.push(payload);
+        return;
+      }
+      absorbGepPayload(payload);
+      syncFromLive();
+      maybeLogMainPerf();
     }
 
     function hasActiveRound(matchInfo) {
@@ -1258,20 +2082,30 @@ function showMainApp() {
     }
 
     function syncSpikeCoachTab(gameInfoBlock, matchInfo) {
+      var matchId = readSpikeCoachMatchId(matchInfo);
       if (matchHasEnded(gameInfoBlock, matchInfo)) {
         if (matchWasActive) {
           matchWasActive = false;
-          closeSpikeCoachTab();
+          spikeCoachMatchLive = false;
+          hideSpikeCoachWindow('match-end');
         }
         return;
       }
-      var inProgress = !!(gameInfoBlock && gameInfoBlock.state === 'InProgress');
-      if (inProgress || hasActiveRound(matchInfo)) {
+      if (matchId && currentSpikeCoachMatchId && matchId !== currentSpikeCoachMatchId) {
+        noteNewSpikeCoachMatch();
         matchWasActive = true;
-        if (!isSpikeCoachTabOpen()) {
-          openSpikeCoachTab();
-        }
+        autoOpenSpikeCoachForMatch(matchId);
+        return;
       }
+      if (matchId && !currentSpikeCoachMatchId) currentSpikeCoachMatchId = matchId;
+      var active = !!(gameInfoBlock && gameInfoBlock.state === 'InProgress') || hasActiveRound(matchInfo);
+      if (!active || matchWasActive || hasAutoOpenedForCurrentMatch) {
+        if (active) matchWasActive = true;
+        return;
+      }
+      matchWasActive = true;
+      console.log('[SpikeCoach Window] New match detected');
+      autoOpenSpikeCoachForMatch(matchId);
     }
 
     function registerValorantFeatures() {
@@ -1284,7 +2118,7 @@ function showMainApp() {
         if (result && result.success) {
           featuresReady = true;
           console.log(LOG, 'setRequiredFeatures success; supportedFeatures:', result.supportedFeatures);
-          logMatchInfo('after setRequiredFeatures');
+          requestInitialSnapshot('features-ready');
           return;
         }
         var reason = (result && (result.reason || result.error)) || '';
@@ -1325,34 +2159,40 @@ function showMainApp() {
       if (event && event.runningChanged) {
         featuresReady = false;
         featureTries = 0;
+        bumpLifecycle();
+        resetGepLive();
+        if (window.spikeCoachSetValorantMatchActive) window.spikeCoachSetValorantMatchActive(false);
         console.log(LOG, 'onGameInfoUpdated runningChanged — reset GEP feature registration state');
       }
     });
 
-    overwolf.games.events.onInfoUpdates2.addListener(function(payload) {
-      console.log(LOG, 'onInfoUpdates2 payload:', payload);
-      logMatchInfo('onInfoUpdates2');
-    });
+    overwolf.games.events.onInfoUpdates2.addListener(onLiveInfoUpdate);
 
     overwolf.games.events.onError.addListener(function(errorEvent) {
       console.log(LOG, 'onError:', errorEvent);
     });
 
     overwolf.games.events.onNewEvents.addListener(function(payload) {
-      console.log(LOG, 'onNewEvents payload:', payload);
       var events = (payload && payload.events) || [];
       events.forEach(function(gameEvent) {
         if (!gameEvent || !gameEvent.name) return;
         if (gameEvent.name === 'match_start') {
-          console.log(LOG, 'match_start event received:', gameEvent);
-          matchWasActive = true;
-          if (!isSpikeCoachTabOpen()) {
-            openSpikeCoachTab();
+          if (spikeCoachMatchLive && hasAutoOpenedForCurrentMatch) {
+            console.log('[SpikeCoach Window] Auto-open ignored: already opened for this match');
+            return;
           }
+          noteNewSpikeCoachMatch();
+          matchWasActive = true;
+          bumpLifecycle();
+          resetGepLive();
+          autoOpenSpikeCoachForMatch(null);
+          if (featuresReady) requestInitialSnapshot('match-start');
         } else if (gameEvent.name === 'match_end') {
-          console.log(LOG, 'match_end event received:', gameEvent);
           matchWasActive = false;
-          closeSpikeCoachTab();
+          spikeCoachMatchLive = false;
+          bumpLifecycle();
+          if (window.spikeCoachSetValorantMatchActive) window.spikeCoachSetValorantMatchActive(false);
+          hideSpikeCoachWindow('match-end');
         }
       });
     });
@@ -1382,55 +2222,10 @@ function showMainApp() {
     });
   });
 
-  // Guess The Rank interactions (show subranks on click)
-  var guessRankBaseRanks = document.getElementById('guessRankBaseRanks');
-  var guessSubrankPanel = document.getElementById('guessSubrankPanel');
-  if (guessRankBaseRanks && guessSubrankPanel) {
-    guessRankBaseRanks.addEventListener('click', function(e) {
-      var rankButton = e.target.closest('.guess-rank-icon-card');
-      if (!rankButton) return;
-
-      var rankName = rankButton.getAttribute('data-rank');
-      var hasSubranks = rankButton.getAttribute('data-has-subranks') === 'true';
-      var cards = guessRankBaseRanks.querySelectorAll('.guess-rank-icon-card');
-      cards.forEach(function(card) { card.classList.remove('active'); });
-      rankButton.classList.add('active');
-
-      if (!hasSubranks) {
-        guessSubrankPanel.innerHTML = `
-          <div class="guess-subrank-title">${rankName}</div>
-          <div class="guess-subrank-note">${rankName} has no subranks.</div>
-        `;
-        // Scroll down so the user can see the subrank area
-        setTimeout(function() {
-          guessSubrankPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 0);
-        return;
-      }
-
-      var subrankButtons = [1, 2, 3].map(function(subrank) {
-        var subrankIconSrc = 'Rank_Icons/' + rankName + '_' + subrank + '_Rank.webp';
-        return `
-          <button class="guess-subrank-btn" data-rank="${rankName}" data-subrank="${subrank}">
-            <img src="${subrankIconSrc}" alt="${rankName} ${subrank}">
-            <span>${rankName} ${subrank}</span>
-          </button>
-        `;
-      }).join('');
-
-      guessSubrankPanel.innerHTML = `
-        <div class="guess-subrank-title">${rankName} Subranks</div>
-        <div class="guess-subrank-grid">
-          ${subrankButtons}
-        </div>
-      `;
-      // Scroll down so the user can see the subrank area
-      setTimeout(function() {
-        guessSubrankPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 0);
-    });
+  if (window.SpikeCoachGuessRank && window.SpikeCoachGuessRank.mountUi) {
+    window.SpikeCoachGuessRank.mountUi();
   }
-  
+
   // Store selected map and agent for line-ups flow
   var selectedMap = '';
   var selectedAgent = '';
@@ -1717,7 +2512,7 @@ function showMainApp() {
     var enemyTeam = [];
     
     // Get user's name
-    var userName = localStorage.getItem('spikecoach_username') || 'Player';
+    var userName = getSpikeCoachDisplayName();
     
     // Add user to their team
     playerTeam.push({
@@ -1954,16 +2749,9 @@ function showMainApp() {
       '</div>';
     });
     
+    // Preview only while Match History is "Coming Soon": cards are not interactive,
+    // so no click handlers are attached (showMatchDetails is kept for the future release).
     gamesList.innerHTML = html;
-    
-    // Add click handlers to game cards
-    var gameCards = document.querySelectorAll('.game-card');
-    gameCards.forEach(function(card) {
-      card.addEventListener('click', function() {
-        var gameIndex = parseInt(this.getAttribute('data-game-index'));
-        showMatchDetails(games[gameIndex]);
-      });
-    });
   }
   
   // Call renderPastGames when the section becomes active
@@ -1975,6 +2763,9 @@ function showMainApp() {
     }
     if (sectionId === 'strategySection' && StrategyPlanner.showMapPicker) {
       StrategyPlanner.showMapPicker();
+    }
+    if (sectionId === 'guessRankSection' && window.SpikeCoachGuessRank && window.SpikeCoachGuessRank.beginSession) {
+      window.SpikeCoachGuessRank.beginSession();
     }
   };
 
@@ -2007,8 +2798,10 @@ function showMainApp() {
       focusedMapAgent: null,
       mapSelection: null,
       arrows: [],
+      spike: null,
       drag: null
     };
+    var SPIKE_ICON_SRC = 'Other_images/Spike_nobg.png';
 
     // Future: ability icons, arrows, annotations — render into strategyMapLayer or sibling SVG
     var layers = {
@@ -2019,6 +2812,7 @@ function showMainApp() {
     };
 
     function agentIconSrc(agentId) {
+      if (window.valorantAgentIconPath) return window.valorantAgentIconPath(agentId);
       return 'Agent_Icons/' + agentId + '_icon.webp';
     }
 
@@ -2176,6 +2970,7 @@ function showMainApp() {
       state.teams = { blue: createEmptyTeamState(), red: createEmptyTeamState() };
       clearMapSelection();
       state.arrows = [];
+      state.spike = null;
     }
 
     function clampMapPct(n) {
@@ -2287,7 +3082,66 @@ function showMainApp() {
           });
         });
       });
+      if (state.spike && state.spike.mapPos) {
+        dom.entitiesLayer.appendChild(buildSpikeMapMarker(state.spike));
+      }
       syncArrows();
+    }
+
+    function buildSpikeMapMarker(spike) {
+      var el = document.createElement('div');
+      el.className = 'strategy-spike-map-marker';
+      el.style.left = spike.mapPos.x + '%';
+      el.style.top = spike.mapPos.y + '%';
+      el.title = 'Spike · drag to move · drag off the map to remove';
+      var img = document.createElement('img');
+      img.src = SPIKE_ICON_SRC;
+      img.alt = 'Spike';
+      img.draggable = false;
+      el.appendChild(img);
+      el.addEventListener('pointerdown', function(e) {
+        e.stopPropagation();
+        if (e.button !== 0) return;
+        startSpikeMapDrag(e, el);
+      });
+      return el;
+    }
+
+    function startSpikeTrayDrag(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      var ghost = document.createElement('div');
+      ghost.className = 'strategy-spike-ghost';
+      ghost.innerHTML = '<img src="' + SPIKE_ICON_SRC + '" alt="">';
+      document.body.appendChild(ghost);
+      ghost.style.left = e.clientX + 'px';
+      ghost.style.top = e.clientY + 'px';
+      state.drag = {
+        mode: 'spike-tray',
+        ghost: ghost,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false
+      };
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragEnd);
+    }
+
+    function startSpikeMapDrag(e, el) {
+      e.preventDefault();
+      state.drag = {
+        mode: 'spike-map',
+        el: el,
+        ghost: null,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false
+      };
+      if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragEnd);
     }
 
     function bindIconContextMenu(el) {
@@ -2618,6 +3472,15 @@ function showMainApp() {
         }
         syncArrows();
       }
+      if (d.mode === 'spike-map') {
+        if (!isInsideMapClient(e.clientX, e.clientY)) return;
+        var spikePos = clientToMapPercent(e.clientX, e.clientY);
+        if (state.spike) state.spike.mapPos = spikePos;
+        if (d.el) {
+          d.el.style.left = spikePos.x + '%';
+          d.el.style.top = spikePos.y + '%';
+        }
+      }
       if (d.mode === 'arrow-draft') {
         d.endPct = clientToMapPercent(e.clientX, e.clientY);
         if (d.previewLine) {
@@ -2702,6 +3565,18 @@ function showMainApp() {
             slotIndex: d.slotIndex,
             abilityId: d.abilityId
           });
+          syncMapScene();
+        }
+      }
+      if (d.mode === 'spike-tray') {
+        if (d.moved && isInsideMapClient(e.clientX, e.clientY)) {
+          state.spike = { mapPos: clientToMapPercent(e.clientX, e.clientY) };
+          syncMapScene();
+        }
+      }
+      if (d.mode === 'spike-map') {
+        if (d.moved && !isInsideMapClient(e.clientX, e.clientY)) {
+          state.spike = null;
           syncMapScene();
         }
       }
@@ -2890,7 +3765,8 @@ function showMainApp() {
         version: 1,
         mapName: state.mapName,
         teams: state.teams,
-        arrows: state.arrows
+        arrows: state.arrows,
+        spike: state.spike
       };
     }
 
@@ -2981,6 +3857,7 @@ function showMainApp() {
       dom.minimapContainer = document.getElementById('strategyExportRoot');
       dom.exportRoot = dom.minimapContainer;
       dom.downloadBtn = document.getElementById('strategyDownloadBtn');
+      dom.spikeSource = document.getElementById('strategySpikeSource');
       dom.minimapImage = document.getElementById('minimapImage');
       dom.mapTitle = document.getElementById('analyzeMapTitle');
       dom.mapLayer = document.getElementById('strategyMapLayer');
@@ -3013,6 +3890,10 @@ function showMainApp() {
 
       if (dom.downloadBtn) {
         dom.downloadBtn.addEventListener('click', exportStrategyBoardPNG);
+      }
+      if (dom.spikeSource) {
+        dom.spikeSource.addEventListener('pointerdown', startSpikeTrayDrag);
+        dom.spikeSource.addEventListener('dragstart', function(e) { e.preventDefault(); });
       }
 
       document.addEventListener('keydown', function(e) {
@@ -3122,6 +4003,16 @@ function showMainApp() {
     if (typing) typing.remove();
   }
 
+  function coachReplyFromApi(response, data) {
+    if (!response.ok) {
+      return (data && data.error) || 'The coach could not answer just now. Please try again.';
+    }
+    if (data && typeof data.response === 'string' && data.response.trim()) {
+      return data.response;
+    }
+    return (data && data.error) || 'The coach could not answer just now. Please try again.';
+  }
+
   function getSpikeCoachIdToken() {
     var auth = window.firebaseAuth;
     if (!auth) return Promise.resolve(null);
@@ -3142,6 +4033,7 @@ function showMainApp() {
   }
 
   async function sendAiMessage() {
+    if (valorantMatchActiveForChat) return;
     var message = aiChatInput.value.trim();
     if (!message) return;
     if (message.length > 250) {
@@ -3151,8 +4043,8 @@ function showMainApp() {
 
     addChatMessage(message, true);
     aiChatInput.value = '';
-    aiChatSend.disabled = true;
-    aiChatInput.disabled = true;
+    aiChatRequestInFlight = true;
+    applyMainAiChatMatchLock();
     showTyping();
 
     var chatUrl = 'http://127.0.0.1:3000/api/chat';
@@ -3164,21 +4056,21 @@ function showMainApp() {
       var response = await fetch(chatUrl, {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify({ message: message })
+        body: JSON.stringify({ message: message, mode: 'main' })
       });
       console.log('[SpikeCoach Chat] status', response.status);
       var data = await response.json();
       removeTyping();
-      addChatMessage(data.response || data.error || 'Error getting response.', false);
+      addChatMessage(coachReplyFromApi(response, data), false);
     } catch (error) {
       console.log('[SpikeCoach Chat] request failed', error && error.name ? error.name : 'Error');
       removeTyping();
       addChatMessage('Cannot connect to server. Run: npm run start-server', false);
     }
 
-    aiChatSend.disabled = false;
-    aiChatInput.disabled = false;
-    aiChatInput.focus();
+    aiChatRequestInFlight = false;
+    applyMainAiChatMatchLock();
+    if (!valorantMatchActiveForChat && aiChatInput) aiChatInput.focus();
   }
 
   if (aiChatSend) {
@@ -3195,23 +4087,22 @@ function showMainApp() {
   }
 }
 
-function showProfileOverlay() {
+var SPIKECOACH_SUPPORT_EMAIL = 'spikecoachco@gmail.com';
+
+function showProfileOverlay(initialSection) {
+  if (document.getElementById('profileOverlayBackdrop')) {
+    closeProfileOverlay(true);
+  }
+  var startSection = (initialSection === 'settings' || initialSection === 'help') ? initialSection : 'profile';
   var userEmail = '';
-  var userInitial = 'U';
-  var userName = 'TestUser';
-  
+  var userInitial = getSpikeCoachUserInitial();
+  var userName = getSpikeCoachDisplayName();
+
   try {
     if (window.firebaseAuth && window.firebaseAuth.currentUser) {
       userEmail = window.firebaseAuth.currentUser.email || '';
-      if (userEmail && userEmail.length > 0) {
-        userInitial = userEmail.charAt(0).toUpperCase();
-      }
-    }
-    // Retrieve username from localStorage
-    var storedUsername = localStorage.getItem('spikecoach_username');
-    if (storedUsername) {
-      userName = storedUsername;
-      userInitial = userName.charAt(0).toUpperCase();
+      userName = getSpikeCoachDisplayName(window.firebaseAuth.currentUser);
+      userInitial = getSpikeCoachUserInitial(window.firebaseAuth.currentUser);
     }
   } catch (e) {}
   
@@ -3226,23 +4117,20 @@ function showProfileOverlay() {
             <div class="profile-overlay-email">${userEmail || 'user@example.com'}</div>
           </div>
           <div class="profile-overlay-nav">
-            <div class="profile-overlay-nav-item active" data-section="profile">
-              <span class="nav-icon">👤</span>
+            <div class="profile-overlay-nav-item${startSection === 'profile' ? ' active' : ''}" data-section="profile">
               <span>Profile</span>
             </div>
-            <div class="profile-overlay-nav-item" data-section="settings">
-              <span class="nav-icon">⚙️</span>
+            <div class="profile-overlay-nav-item${startSection === 'settings' ? ' active' : ''}" data-section="settings">
               <span>Settings</span>
             </div>
-            <div class="profile-overlay-nav-item" data-section="help">
-              <span class="nav-icon">❓</span>
+            <div class="profile-overlay-nav-item${startSection === 'help' ? ' active' : ''}" data-section="help">
               <span>Help</span>
             </div>
           </div>
         </div>
         <div class="profile-overlay-content">
           <button class="profile-overlay-close" id="profileOverlayClose">✕</button>
-          <div class="profile-overlay-section active" id="profileSection">
+          <div class="profile-overlay-section${startSection === 'profile' ? ' active' : ''}" id="profileSection">
             <h2 class="profile-overlay-title">Profile</h2>
             
             <!-- Profile Picture Section -->
@@ -3273,13 +4161,38 @@ function showProfileOverlay() {
               </div>
             </div>
           </div>
-          <div class="profile-overlay-section" id="settingsSection">
+          <div class="profile-overlay-section${startSection === 'settings' ? ' active' : ''}" id="settingsSection">
             <h2 class="profile-overlay-title">Settings</h2>
-            <p class="profile-placeholder-text">Settings will be available soon...</p>
+            <p class="profile-overlay-subtitle">Customize how SpikeCoach behaves while you play.</p>
+            <div class="overlay-hotkey-setting">
+              <div class="settings-card-head">
+                <div>
+                  <label class="settings-card-title" for="overlayHotkeySelect">SpikeCoach Overlay Hotkey</label>
+                  <p class="settings-card-desc">Show or hide the in-game SpikeCoach window with one key combination.</p>
+                </div>
+              </div>
+              <select id="overlayHotkeySelect" class="overlay-hotkey-select"></select>
+              <p class="overlay-hotkey-current" id="overlayHotkeyCurrent"></p>
+              <p class="overlay-hotkey-note">Applies immediately. No restart needed.</p>
+              <p class="overlay-hotkey-status" id="overlayHotkeyStatus" aria-live="polite"></p>
+            </div>
           </div>
-          <div class="profile-overlay-section" id="helpSection">
+          <div class="profile-overlay-section${startSection === 'help' ? ' active' : ''}" id="helpSection">
             <h2 class="profile-overlay-title">Help</h2>
-            <p class="profile-placeholder-text">Help resources will be available soon...</p>
+            <p class="profile-overlay-subtitle">Questions, bugs, or feedback? We'd love to hear from you.</p>
+            <div class="help-card">
+              <div class="settings-card-head">
+                <div>
+                  <span class="settings-card-title">Contact Support</span>
+                  <p class="settings-card-desc">Email us and we'll get back to you as soon as we can.</p>
+                </div>
+              </div>
+              <div class="help-email-row">
+                <span class="help-email-label">Email</span>
+                <a class="help-email-link" id="helpEmailLink" href="mailto:${SPIKECOACH_SUPPORT_EMAIL}">${SPIKECOACH_SUPPORT_EMAIL}</a>
+                <button type="button" class="help-copy-btn" id="helpCopyEmailBtn">Copy</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -3362,26 +4275,34 @@ function showProfileOverlay() {
       input.select();
       
       function saveUsername() {
-        var newUsername = input.value.trim();
-        if (newUsername && newUsername !== '') {
-          localStorage.setItem('spikecoach_username', newUsername);
-          usernameDisplay.textContent = newUsername;
-          
-          // Update all username displays
-          var dropdownUsername = document.querySelector('.dropdown-username');
-          if (dropdownUsername) dropdownUsername.textContent = newUsername;
-          
-          var overlayUsername = document.querySelector('.profile-overlay-username');
-          if (overlayUsername) overlayUsername.textContent = newUsername;
-          
-          // Update initials
-          var newInitial = newUsername.charAt(0).toUpperCase();
-          var profileCircles = document.querySelectorAll('.profile-circle, .profile-circle-large, .profile-circle-xlarge');
-          profileCircles.forEach(function(circle) {
-            circle.textContent = newInitial;
-          });
+        var usernameValidation = validateSpikeCoachUsername(input.value);
+        if (!usernameValidation.ok) {
+          alert(usernameValidation.message);
+          input.focus();
+          input.select();
+          return;
         }
-        cleanup();
+        var newUsername = usernameValidation.name;
+        if (newUsername === currentUsername) {
+          cleanup();
+          return;
+        }
+        if (!window.updateUserDisplayName) {
+          return;
+        }
+        saveBtn.disabled = true;
+        window.updateUserDisplayName(null, newUsername)
+          .then(function() {
+            usernameDisplay.textContent = newUsername;
+            updateSpikeCoachUsernameInUI(newUsername);
+            cleanup();
+          })
+          .catch(function(err) {
+            console.error('Username update error:', err);
+            saveBtn.disabled = false;
+            alert(mapFirebaseAuthError(err, 'profile'));
+            input.focus();
+          });
       }
       
       function cleanup() {
@@ -3417,6 +4338,29 @@ function showProfileOverlay() {
   var savedColor = localStorage.getItem('spikecoach_profile_color');
   if (savedColor) {
     applyProfileColor(savedColor);
+  }
+
+  bindOverlayHotkeySettings();
+
+  // Help: copy support email
+  var helpCopyBtn = document.getElementById('helpCopyEmailBtn');
+  if (helpCopyBtn) {
+    helpCopyBtn.addEventListener('click', function() {
+      var done = function() {
+        helpCopyBtn.textContent = 'Copied!';
+        setTimeout(function() { helpCopyBtn.textContent = 'Copy'; }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(SPIKECOACH_SUPPORT_EMAIL).then(done).catch(function() {});
+      } else {
+        var tmp = document.createElement('textarea');
+        tmp.value = SPIKECOACH_SUPPORT_EMAIL;
+        document.body.appendChild(tmp);
+        tmp.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        tmp.remove();
+      }
+    });
   }
   
   // Animate in
@@ -3528,8 +4472,12 @@ function applyProfileColor(color) {
   });
 }
 
-function closeProfileOverlay() {
+function closeProfileOverlay(immediate) {
   var backdrop = document.getElementById('profileOverlayBackdrop');
+  if (backdrop && immediate === true) {
+    backdrop.remove();
+    return;
+  }
   if (backdrop) {
     backdrop.classList.remove('show');
     setTimeout(function() {
@@ -3604,7 +4552,257 @@ function animateOnboarding() {
   // Arrows remain always visible - no animation for them
 }
 
+var SPIKE_TAB_WINDOW_NAME = 'SpikeCoachTab';
+var VALORANT_GAME_ID = 21640;
+var OVERLAY_HOTKEY_NAME = 'toggle_spikecoach';
+var OVERLAY_HOTKEY_STORAGE_KEY = 'spikecoach_overlay_hotkey';
+var OVERLAY_HOTKEY_OPTIONS = [
+  { id: 'ctrl-shift-k', label: 'Ctrl + Shift + K', virtualKey: 75 },
+  { id: 'ctrl-shift-l', label: 'Ctrl + Shift + L', virtualKey: 76 },
+  { id: 'ctrl-shift-j', label: 'Ctrl + Shift + J', virtualKey: 74 },
+  { id: 'ctrl-shift-m', label: 'Ctrl + Shift + M', virtualKey: 77 }
+];
+var DEFAULT_OVERLAY_HOTKEY_ID = 'ctrl-shift-k';
+var activeOverlayHotkeyId = DEFAULT_OVERLAY_HOTKEY_ID;
+var overlayHotkeyStatusText = '';
+var overlayHotkeyStatusOk = true;
+var overlayHotkeyToggleBusy = false;
+var overlayHotkeyListenersBound = false;
+
+function overlayHotkeyOption(id) {
+  var match = null;
+  OVERLAY_HOTKEY_OPTIONS.forEach(function(option) {
+    if (option.id === id) match = option;
+  });
+  return match;
+}
+
+function readOverlayHotkeyId() {
+  try {
+    var stored = localStorage.getItem(OVERLAY_HOTKEY_STORAGE_KEY);
+    if (overlayHotkeyOption(stored)) return stored;
+  } catch (e) {}
+  return DEFAULT_OVERLAY_HOTKEY_ID;
+}
+
+function writeOverlayHotkeyId(id) {
+  try {
+    localStorage.setItem(OVERLAY_HOTKEY_STORAGE_KEY, id);
+  } catch (e) {}
+}
+
+function overlayHotkeyIdFromBinding(binding) {
+  var text = String(binding || '').toLowerCase().replace(/\s+/g, '');
+  var match = null;
+  OVERLAY_HOTKEY_OPTIONS.forEach(function(option) {
+    if (option.label.toLowerCase().replace(/\s+/g, '') === text) match = option.id;
+  });
+  return match;
+}
+
+function setOverlayHotkeyStatus(message, ok) {
+  overlayHotkeyStatusText = message || '';
+  overlayHotkeyStatusOk = ok !== false;
+  var status = document.getElementById('overlayHotkeyStatus');
+  if (!status) return;
+  status.textContent = overlayHotkeyStatusText;
+  status.classList.toggle('is-ok', !!overlayHotkeyStatusText && overlayHotkeyStatusOk);
+  status.classList.toggle('is-error', !!overlayHotkeyStatusText && !overlayHotkeyStatusOk);
+}
+
+function friendlyHotkeyError(detail) {
+  var text = String(detail || '').toLowerCase();
+  console.log('[SpikeCoach Hotkey] assign failed', detail || 'unknown');
+  if (text.indexOf('already') !== -1 || text.indexOf('conflict') !== -1 || text.indexOf('used') !== -1 || text.indexOf('exist') !== -1) {
+    return 'That shortcut is already in use.';
+  }
+  return 'That shortcut could not be registered.';
+}
+
+function spikeCoachWindowIsShown(win) {
+  if (!win) return false;
+  var state = win.stateEx || win.state || '';
+  if (state === 'hidden' || state === 'closed' || state === 'minimized') return false;
+  if (state === 'normal' || state === 'maximized') return true;
+  return win.isVisible === true;
+}
+
+function toggleSpikeCoachInGameWindow() {
+  if (window.spikeCoachOverlayControl && window.spikeCoachOverlayControl.toggle) {
+    window.spikeCoachOverlayControl.toggle();
+    return;
+  }
+  if (overlayHotkeyToggleBusy) return;
+  if (!window.overwolf || !overwolf.windows || !overwolf.windows.obtainDeclaredWindow || !overwolf.windows.hide || !overwolf.windows.restore) {
+    return;
+  }
+  overlayHotkeyToggleBusy = true;
+  overwolf.windows.obtainDeclaredWindow(SPIKE_TAB_WINDOW_NAME, function(result) {
+    if (!result || !result.success || !result.window) {
+      overlayHotkeyToggleBusy = false;
+      console.log('[SpikeCoach Hotkey] obtainDeclaredWindow failed');
+      return;
+    }
+    var shown = spikeCoachWindowIsShown(result.window);
+    var done = function() { overlayHotkeyToggleBusy = false; };
+    if (shown) {
+      console.log('[SpikeCoach Window] Hide requested: hotkey');
+      overwolf.windows.hide(SPIKE_TAB_WINDOW_NAME, done);
+    } else {
+      console.log('[SpikeCoach Window] Show requested: hotkey');
+      overwolf.windows.restore(SPIKE_TAB_WINDOW_NAME, done);
+    }
+  });
+}
+
+function assignOverlayHotkey(option, callback) {
+  var api = window.overwolf && overwolf.settings && overwolf.settings.hotkeys;
+  if (!option || !api || typeof api.assign !== 'function') {
+    callback({ ok: false, reason: 'unavailable' });
+    return;
+  }
+  var modifiers = { ctrl: true, shift: true, alt: false };
+  api.assign({
+    name: OVERLAY_HOTKEY_NAME,
+    gameId: VALORANT_GAME_ID,
+    virtualKey: option.virtualKey,
+    modifiers: modifiers
+  }, function(result) {
+    if (result && result.success) {
+      callback({ ok: true });
+      return;
+    }
+    api.assign({
+      name: OVERLAY_HOTKEY_NAME,
+      gameid: VALORANT_GAME_ID,
+      virtualKey: option.virtualKey,
+      modifiers: modifiers
+    }, function(retry) {
+      if (retry && retry.success) callback({ ok: true });
+      else callback({
+        ok: false,
+        reason: 'rejected',
+        detail: (retry && retry.error) || (result && result.error) || ''
+      });
+    });
+  });
+}
+
+function applyOverlayHotkey(id, callback) {
+  var option = overlayHotkeyOption(id) || overlayHotkeyOption(DEFAULT_OVERLAY_HOTKEY_ID);
+  assignOverlayHotkey(option, function(result) {
+    if (result.ok) {
+      activeOverlayHotkeyId = option.id;
+      writeOverlayHotkeyId(option.id);
+      callback({ ok: true, option: option });
+      return;
+    }
+    if (result.reason === 'unavailable') {
+      activeOverlayHotkeyId = readOverlayHotkeyId();
+      callback({ ok: false, reason: 'unavailable', option: overlayHotkeyOption(activeOverlayHotkeyId) });
+      return;
+    }
+    if (option.id !== DEFAULT_OVERLAY_HOTKEY_ID) {
+      assignOverlayHotkey(overlayHotkeyOption(DEFAULT_OVERLAY_HOTKEY_ID), function(fallback) {
+        if (fallback.ok) {
+          activeOverlayHotkeyId = DEFAULT_OVERLAY_HOTKEY_ID;
+          writeOverlayHotkeyId(DEFAULT_OVERLAY_HOTKEY_ID);
+        }
+        callback({
+          ok: false,
+          reason: 'rejected',
+          reverted: !!fallback.ok,
+          detail: result.detail,
+          option: overlayHotkeyOption(activeOverlayHotkeyId)
+        });
+      });
+      return;
+    }
+    callback({ ok: false, reason: 'rejected', reverted: false, detail: result.detail, option: option });
+  });
+}
+
+function refreshOverlayHotkeySettings() {
+  var select = document.getElementById('overlayHotkeySelect');
+  var current = document.getElementById('overlayHotkeyCurrent');
+  if (select && !select.options.length) {
+    OVERLAY_HOTKEY_OPTIONS.forEach(function(option) {
+      var item = document.createElement('option');
+      item.value = option.id;
+      item.textContent = option.label;
+      select.appendChild(item);
+    });
+  }
+  var selected = overlayHotkeyOption(activeOverlayHotkeyId) || overlayHotkeyOption(DEFAULT_OVERLAY_HOTKEY_ID);
+  if (select) select.value = selected.id;
+  if (current) current.textContent = 'Current: ' + selected.label;
+  setOverlayHotkeyStatus(overlayHotkeyStatusText, overlayHotkeyStatusOk);
+}
+
+function bindOverlayHotkeySettings() {
+  refreshOverlayHotkeySettings();
+  var select = document.getElementById('overlayHotkeySelect');
+  if (!select || select.dataset.bound === '1') return;
+  select.dataset.bound = '1';
+  select.addEventListener('change', function() {
+    var nextId = select.value;
+    if (nextId === activeOverlayHotkeyId) return;
+    select.disabled = true;
+    applyOverlayHotkey(nextId, function(result) {
+      select.disabled = false;
+      refreshOverlayHotkeySettings();
+      if (result.ok) {
+        setOverlayHotkeyStatus('Overlay hotkey updated.', true);
+        return;
+      }
+      if (result.reason === 'unavailable') {
+        setOverlayHotkeyStatus('Overlay hotkey is unavailable in this session.', false);
+        return;
+      }
+      var kept = result.option ? result.option.label : 'Ctrl + Shift + K';
+      setOverlayHotkeyStatus(friendlyHotkeyError(result.detail) + ' SpikeCoach kept ' + kept + '.', false);
+    });
+  });
+}
+
+function initSpikeCoachOverlayHotkey() {
+  activeOverlayHotkeyId = readOverlayHotkeyId();
+  var api = window.overwolf && overwolf.settings && overwolf.settings.hotkeys;
+  if (api && !overlayHotkeyListenersBound) {
+    overlayHotkeyListenersBound = true;
+    if (api.onPressed && api.onPressed.addListener) {
+      api.onPressed.addListener(function(event) {
+        if (!event || event.name !== OVERLAY_HOTKEY_NAME) return;
+        toggleSpikeCoachInGameWindow();
+      });
+    }
+    if (api.onChanged && api.onChanged.addListener) {
+      api.onChanged.addListener(function(event) {
+        if (!event || event.name !== OVERLAY_HOTKEY_NAME) return;
+        var id = overlayHotkeyIdFromBinding(event.binding);
+        if (!id) return;
+        activeOverlayHotkeyId = id;
+        writeOverlayHotkeyId(id);
+        refreshOverlayHotkeySettings();
+        if (document.getElementById('overlayHotkeySelect')) {
+          setOverlayHotkeyStatus('Overlay hotkey updated.', true);
+        }
+      });
+    }
+  }
+  applyOverlayHotkey(activeOverlayHotkeyId, function(result) {
+    if (result.ok) return;
+    if (result.reason === 'unavailable') {
+      setOverlayHotkeyStatus('Overlay hotkey is unavailable in this session.', false);
+      return;
+    }
+    var kept = result.option ? result.option.label : 'Ctrl + Shift + K';
+    setOverlayHotkeyStatus(friendlyHotkeyError(result.detail) + ' SpikeCoach kept ' + kept + '.', false);
+  });
+}
+
 window.addEventListener('DOMContentLoaded', function() {
+  initSpikeCoachOverlayHotkey();
   // Immediately hide animation elements off-screen before GSAP initializes
   var topEls = document.querySelectorAll('.top-horizontal-text .reveal-inner');
   var bottomEls = document.querySelectorAll('.bottom-horizontal-text .reveal-inner');
@@ -3681,9 +4879,6 @@ function animateLoginElements() {
     .from('.signup-btn', {duration:0.28, y:4, opacity:0, ease:'power2.out'}, '-=0.18');
 }
 
-window.addEventListener('load', function() {
-  showTestingScreen();
-});
 
 function showTestingScreen() {
   document.body.innerHTML = `
@@ -3759,16 +4954,6 @@ function restoreLandingPage() {
   
   // Start the intro animation sequence
   orchestrateIntroSequence();
-}
-
-// Listen for Firebase auth state changes and update UI automatically when available
-if (window.onAuthStateChanged) {
-  window.onAuthStateChanged(function(user) {
-    if (user) {
-      // user signed in -> show logged in UI
-      showLoggedInScreen();
-    }
-  });
 }
 
 function orchestrateIntroSequence() {

@@ -10,8 +10,15 @@ const HOST = '0.0.0.0';
 
 const MODEL = 'gpt-6-luna';
 const MAX_CHAT_CHARS = 250;
-const MAX_OUTPUT_TOKENS = 180;
-const SYSTEM_PROMPT = 'You are SpikeCoach, a Valorant coach. Only answer Valorant questions. Reply in short, practical sentences.';
+const SYSTEM_PROMPT_MAIN =
+  'You are SpikeCoach, an expert Valorant coach in the main desktop app. ' +
+  'Answer any Valorant question accurately but keep replies SHORT: usually 2-4 sentences, or at most 3 very brief bullet points. ' +
+  'No long guides, no multi-paragraph essays. Stay focused on Valorant only.';
+const SYSTEM_PROMPT_INGAME =
+  'You are SpikeCoach Coach Chat inside a live Valorant match overlay. ' +
+  'Give one or two short sentences of general Valorant advice only. No lists, no long explanations, no lineup or strat deep-dives.';
+const MAX_OUTPUT_TOKENS_MAIN = 180;
+const MAX_OUTPUT_TOKENS_INGAME = 90;
 
 const USER_LIMITS = { perMinute: 8, perHour: 40, minuteMs: 60 * 1000, hourMs: 60 * 60 * 1000 };
 const IP_LIMITS = { perMinute: 16, perHour: 80, minuteMs: 60 * 1000, hourMs: 60 * 60 * 1000 };
@@ -122,6 +129,46 @@ function chatFailure(error) {
   return { status: 503, error: 'The coach could not answer just now. Please try again.' };
 }
 
+function normalizeChatMode(raw) {
+  return raw === 'ingame' ? 'ingame' : 'main';
+}
+
+function getChatCoachConfig(mode) {
+  if (mode === 'ingame') {
+    return {
+      instructions: SYSTEM_PROMPT_INGAME,
+      max_output_tokens: MAX_OUTPUT_TOKENS_INGAME,
+      reasoning: { effort: 'none' }
+    };
+  }
+  return {
+    instructions: SYSTEM_PROMPT_MAIN,
+    max_output_tokens: MAX_OUTPUT_TOKENS_MAIN,
+    reasoning: { effort: 'none' }
+  };
+}
+
+function extractResponseText(result) {
+  if (result && typeof result.output_text === 'string' && result.output_text.trim()) {
+    return result.output_text.trim();
+  }
+  if (!result || !Array.isArray(result.output)) {
+    return '';
+  }
+  var parts = [];
+  for (var i = 0; i < result.output.length; i++) {
+    var item = result.output[i];
+    if (!item || item.type !== 'message' || !Array.isArray(item.content)) continue;
+    for (var j = 0; j < item.content.length; j++) {
+      var block = item.content[j];
+      if (block && block.type === 'output_text' && block.text) {
+        parts.push(block.text);
+      }
+    }
+  }
+  return parts.join('\n').trim();
+}
+
 app.set('trust proxy', 1);
 var localDev = process.env.NODE_ENV !== 'production';
 app.use(function (req, res, next) {
@@ -160,6 +207,9 @@ app.post('/api/chat', async function (req, res) {
   if (message.length > MAX_CHAT_CHARS) {
     return res.status(400).json({ error: 'Please keep messages to ' + MAX_CHAT_CHARS + ' characters or fewer.' });
   }
+
+  var chatMode = normalizeChatMode(req.body.mode);
+  var coachConfig = getChatCoachConfig(chatMode);
 
   var now = Date.now();
   var ip = clientIp(req);
@@ -204,12 +254,25 @@ app.post('/api/chat', async function (req, res) {
   try {
     var result = await getOpenAI().responses.create({
       model: MODEL,
-      instructions: SYSTEM_PROMPT,
+      instructions: coachConfig.instructions,
       input: message,
-      max_output_tokens: MAX_OUTPUT_TOKENS
+      max_output_tokens: coachConfig.max_output_tokens,
+      reasoning: coachConfig.reasoning
     });
-    console.log('openai_chat_ok', { user: userId || 'ip', chars: message.length });
-    res.json({ response: result.output_text });
+    var reply = extractResponseText(result);
+    if (!reply) {
+      console.error('openai_chat_empty', {
+        user: userId || 'ip',
+        mode: chatMode,
+        status: result && result.status,
+        incomplete: result && result.incomplete_details
+      });
+      return res.status(503).json({
+        error: 'The coach could not finish that answer. Try again or ask a shorter question.'
+      });
+    }
+    console.log('openai_chat_ok', { user: userId || 'ip', mode: chatMode, chars: message.length, replyChars: reply.length });
+    res.json({ response: reply });
   } catch (error) {
     var failure = chatFailure(error);
     res.status(failure.status).json({ error: failure.error });

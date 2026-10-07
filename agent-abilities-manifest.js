@@ -476,3 +476,74 @@ window.AGENT_ABILITY_MANIFEST={
     }
   ]
 };
+
+(function () {
+  var CODENAMES = {
+    Clay: 'Raze', Clay_PC_C: 'Raze',
+    Pandemic: 'Viper', Pandemic_PC_C: 'Viper',
+    Wraith: 'Omen', Wraith_PC_C: 'Omen',
+    Hunter: 'Sova', Hunter_PC_C: 'Sova',
+    Thorne: 'Sage', Thorne_PC_C: 'Sage',
+    Phoenix: 'Phoenix', Phoenix_PC_C: 'Phoenix',
+    Wushu: 'Jett', Wushu_PC_C: 'Jett',
+    Gumshoe: 'Cypher', Gumshoe_PC_C: 'Cypher',
+    Sarge: 'Brimstone', Sarge_PC_C: 'Brimstone',
+    Breach: 'Breach', Breach_PC_C: 'Breach',
+    Vampire: 'Reyna', Vampire_PC_C: 'Reyna',
+    Killjoy: 'Killjoy', Killjoy_PC_C: 'Killjoy',
+    Guide: 'Skye', Guide_PC_C: 'Skye',
+    Stealth: 'Yoru', Stealth_PC_C: 'Yoru',
+    Rift: 'Astra', Rift_PC_C: 'Astra',
+    Grenadier: 'KAY/O', Grenadier_PC_C: 'KAY/O',
+    Deadeye: 'Chamber', Deadeye_PC_C: 'Chamber',
+    Sprinter: 'Neon', Sprinter_PC_C: 'Neon',
+    BountyHunter: 'Fade', BountyHunter_PC_C: 'Fade',
+    Mage: 'Harbor', Mage_PC_C: 'Harbor',
+    AggroBot: 'Gekko', AggroBot_PC_C: 'Gekko',
+    Cable: 'Deadlock', Cable_PC_C: 'Deadlock',
+    Sequoia: 'Iso', Sequoia_PC_C: 'Iso',
+    Smonk: 'Clove', Smonk_PC_C: 'Clove',
+    Nox: 'Vyse', Nox_PC_C: 'Vyse',
+    Cashew: 'Tejo', Cashew_PC_C: 'Tejo',
+    Terra: 'Waylay', Terra_PC_C: 'Waylay',
+    Iris: 'Miks', Iris_PC_C: 'Miks',
+    Pine: 'Veto', Pine_PC_C: 'Veto'
+  };
+
+  var CANONICAL = {
+    miks: 'Miks',
+    iris: 'Miks',
+    veto: 'Veto',
+    pine: 'Veto',
+    'kay/o': 'KAY/O',
+    kayo: 'KAY/O'
+  };
+
+  var ICON_FILE = { 'KAY/O': 'KAYO' };
+
+  var FALLBACK_ICON = 'spikecoach_icon.png';
+
+  window.SPIKECOACH_AGENT_CODENAMES = CODENAMES;
+
+  window.resolveValorantAgentName = function (raw) {
+    if (raw == null || raw === '') return null;
+    var text = String(raw).trim();
+    var resolved = CODENAMES[text] || text;
+    var canon = CANONICAL[resolved.toLowerCase()];
+    return canon || resolved;
+  };
+
+  window.valorantAgentIconPath = function (displayName) {
+    if (!displayName) return '';
+    var file = ICON_FILE[displayName] || displayName;
+    return 'Agent_Icons/' + file + '_icon.webp';
+  };
+
+  window.bindValorantAgentIconFallback = function (img) {
+    if (!img || img.dataset.agentIconFallbackBound === '1') return;
+    img.dataset.agentIconFallbackBound = '1';
+    img.addEventListener('error', function onIconError() {
+      if (img.src.indexOf(FALLBACK_ICON) === -1) img.src = FALLBACK_ICON;
+    });
+  };
+})();

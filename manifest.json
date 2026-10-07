@@ -11,7 +11,7 @@
     "description": "Valorant Coacher",
     "window_icon": "Spikecoach_Final_Logo.png"
   },
-  "permissions": ["GameInfo"],
+  "permissions": ["GameInfo", "Hotkeys"],
   "data": {
     "game_targeting": {
       "type": "dedicated",
@@ -19,6 +19,29 @@
     },
     "game_events": [21640],
     "start_window": "MainWindow",
+    "request_referrer_force": [
+      {
+        "rule": "https://www.youtube.com/*",
+        "domain": "spike-coach"
+      },
+      {
+        "rule": "https://*.youtube.com/*",
+        "domain": "spike-coach"
+      },
+      {
+        "rule": "https://*.youtube-nocookie.com/*",
+        "domain": "spike-coach"
+      }
+    ],
+    "hotkeys": {
+      "toggle_spikecoach": {
+        "title": "SpikeCoach Overlay",
+        "action-type": "custom",
+        "default": "Ctrl+Shift+K",
+        "passthrough": true,
+        "game_ids": [21640]
+      }
+    },
     "windows": {
       "MainWindow": {
         "file": "index.html",
@@ -51,19 +74,19 @@
       "SpikeCoachTab": {
         "file": "spikecoach-tab.html",
         "transparent": false,
-        "resizable": false,
+        "resizable": true,
         "grab_keyboard_focus": false,
         "size": {
           "width": 688,
-          "height": 512
+          "height": 770
         },
         "min_size": {
           "width": 688,
-          "height": 512
+          "height": 420
         },
         "max_size": {
           "width": 688,
-          "height": 512
+          "height": 770
         }
       }
     }
