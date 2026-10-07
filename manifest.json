@@ -6,10 +6,12 @@
     "version": "1.0.1",
     "minimum-overwolf-version": "0.199.0.15",
     "author": "Kireeti Saha",
+    "dock_button_title": "SpikeCoach",
     "icon": "IconMouseOver.png",
     "icon_gray": "IconMouseNormal.png",
+    "launcher_icon": "launcher_icon.ico",
     "description": "Valorant Coacher",
-    "window_icon": "Spikecoach_Final_Logo.png"
+    "window_icon": "WindowIcon.png"
   },
   "permissions": ["GameInfo", "Hotkeys"],
   "data": {
