@@ -646,6 +646,30 @@ p {
   font-family: 'TechnoRaceItalic', 'Segoe UI', Roboto, sans-serif;
 }
 
+.onboarding-coming-soon::before {
+  content: none;
+}
+
+.onboarding-coming-soon {
+  min-height: 96px;
+  flex-shrink: 0;
+  color: rgba(255,70,85,0.75);
+  font-family: 'SummerFavourite', 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-align: center;
+}
+
+.onboarding-card--simple {
+  justify-content: center;
+  gap: 18px;
+}
+
+.onboarding-card--simple .onboarding-subtitle {
+  margin-bottom: 14px;
+}
+
 .onboarding-btn {
   width: 80%;
   padding: 14px 40px;
@@ -2908,7 +2932,7 @@ p {
 /* AI Coach Chat Styles */
 .ai-chat-container {
   width: 100%;
-  max-width: 1400px;
+  max-width: 900px;
   height: calc(100vh - 110px);
   margin: 0 auto;
   padding: 30px 48px;
@@ -3018,14 +3042,22 @@ p {
 }
 
 .ai-msg-bot {
-  align-self: stretch;
-  width: 100%;
+  align-self: flex-start;
+  width: fit-content;
   max-width: 100%;
+  flex: none;
   box-sizing: border-box;
   background: rgba(35, 44, 54, 0.9);
   color: #ece8e1;
   border: 1px solid rgba(255, 70, 85, 0.2);
   border-bottom-left-radius: 6px;
+}
+
+.ai-msg-bot p,
+.ai-msg-bot ul,
+.ai-msg-bot ol {
+  width: max-content;
+  max-width: 52ch;
 }
 
 .ai-msg-bot p {
@@ -3509,6 +3541,13 @@ p {
 
   .ai-msg-bot {
     width: 100%;
+    max-width: 100%;
+  }
+
+  .ai-msg-bot p,
+  .ai-msg-bot ul,
+  .ai-msg-bot ol {
+    width: auto;
     max-width: 100%;
   }
   
@@ -5586,4 +5625,497 @@ p {
 }
 .help-copy-btn:hover {
   background: rgba(255, 70, 85, 0.3);
+}
+
+/* ---- Guided tutorial ---- */
+.sc-tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  pointer-events: none;
+}
+
+.sc-tour-blocker {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.sc-tour-highlight {
+  position: fixed;
+  box-sizing: border-box;
+  border-radius: 10px;
+  pointer-events: none;
+  outline: 2px solid #ff4655;
+  box-shadow: 0 0 14px 3px rgba(255, 70, 85, 0.5), 0 0 0 9999px rgba(8, 13, 19, 0.62);
+  transition: left 0.2s ease, top 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.sc-tour-card {
+  position: fixed;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: 16px 18px 14px;
+  background: #1a2733;
+  border: 1px solid rgba(255, 70, 85, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  color: #ece8e1;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+  text-align: left;
+  pointer-events: auto;
+}
+
+.sc-tour-step {
+  margin-bottom: 4px;
+  color: #7a8a96;
+  font-size: 0.75rem;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.sc-tour-title {
+  margin: 0 0 6px;
+  color: #ff4655;
+  font-family: 'SummerFavourite', 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.25rem;
+  letter-spacing: 0.5px;
+}
+
+.sc-tour-text {
+  margin: 0 0 14px;
+  color: #d5dbe0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.sc-tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sc-tour-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.sc-tour-skip {
+  padding: 6px 2px;
+  background: none;
+  border: none;
+  color: #9aa8b5;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.sc-tour-skip:hover {
+  color: #ece8e1;
+}
+
+.sc-tour-btn {
+  padding: 8px 16px;
+  background: rgba(35, 44, 54, 0.9);
+  border: 1px solid rgba(255, 70, 85, 0.35);
+  border-radius: 10px;
+  color: #ece8e1;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sc-tour-btn:hover:not(:disabled) {
+  border-color: rgba(255, 70, 85, 0.7);
+}
+
+.sc-tour-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sc-tour-btn-primary {
+  background: linear-gradient(90deg, #ff6b78, #ff4655);
+  border-color: transparent;
+  color: #fff;
+}
+
+.sc-tour-btn:focus-visible,
+.sc-tour-skip:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sc-tour-highlight {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Final visual polish pass (appended last, presentation only)
+   Shared tokens + targeted refinements. Existing selectors keep their rules;
+   these only refine them.
+   ========================================================================== */
+:root {
+  --sc-accent: #ff4655;
+  --sc-accent-soft: #ff6b78;
+  --sc-text: #ece8e1;
+  --sc-text-muted: #a8b2b8;
+  --sc-text-dim: #8b98a4;
+  --sc-surface: rgba(26, 39, 51, 0.9);
+  --sc-border: rgba(255, 70, 85, 0.25);
+  --sc-border-strong: rgba(255, 70, 85, 0.55);
+  --sc-radius-btn: 12px;
+  --sc-radius-card: 14px;
+  --sc-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes scFadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Focus, selection, press feedback ---- */
+.products-screen button:focus-visible,
+.products-screen input:focus-visible,
+.onboarding-container button:focus-visible {
+  outline: 2px solid var(--sc-accent-soft);
+  outline-offset: 2px;
+}
+
+.products-screen ::selection {
+  background: rgba(255, 70, 85, 0.35);
+  color: #fff;
+}
+
+.onboarding-btn:active,
+.spikecoach-tab-btn:active,
+.ai-chat-input-area button:active:not(:disabled),
+.strategy-download-btn:active,
+.guess-rank-next-btn:active,
+.back-button:active,
+.guess-rank-icon-card:active:not(:disabled),
+.guess-subrank-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.99);
+}
+
+/* ---- Navigation ---- */
+.taskbar-item {
+  cursor: pointer;
+}
+
+.taskbar-text {
+  transition: color 0.2s ease;
+}
+
+.taskbar-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.taskbar-item:hover:not(.active) .taskbar-text {
+  color: var(--sc-text);
+}
+
+/* ---- Home ---- */
+.welcome-section {
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 40%, rgba(255, 70, 85, 0.1) 0%, rgba(255, 70, 85, 0) 70%),
+    linear-gradient(180deg, #0f1923 0%, #1a2733 100%);
+}
+
+.spikecoach-tab-btn {
+  border-radius: var(--sc-radius-btn);
+  transition: transform 0.2s var(--sc-ease), box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.welcome-section .welcome-hint {
+  max-width: 460px;
+  margin: 14px auto 0;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--sc-text-dim);
+  text-align: center;
+}
+
+/* ---- What's New: the global p rule (max-width 400px, centered) was squeezing the article ---- */
+.whats-new-section p {
+  max-width: none;
+  text-align: inherit;
+}
+
+/* ---- Past Games (Coming Soon): darker scrim so the label is readable over the preview ---- */
+.past-games-coming-soon {
+  background:
+    radial-gradient(ellipse 62% 44% at 50% 50%, rgba(10, 16, 22, 0.74) 0%, rgba(10, 16, 22, 0) 100%),
+    radial-gradient(ellipse 60% 55% at 50% 50%, rgba(255, 70, 85, 0.3) 0%, rgba(255, 70, 85, 0.16) 70%),
+    rgba(120, 18, 30, 0.38);
+}
+
+/* ---- AI Coach ---- */
+.ai-chat-container .ai-chat-disclaimer {
+  max-width: none;
+  margin: 10px 0 0;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--sc-text-dim);
+  text-align: center;
+}
+
+.ai-chat-messages {
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+}
+
+.ai-msg {
+  overflow-wrap: anywhere;
+}
+
+.ai-msg-bot p,
+.ai-msg-bot li {
+  overflow-wrap: anywhere;
+}
+
+.ai-msg-bot.ai-msg-error {
+  border-left-color: #f0883e;
+  background: linear-gradient(135deg, rgba(240, 136, 62, 0.14) 0%, rgba(28, 38, 48, 0.95) 100%);
+  color: #f4dcc6;
+  font-size: 1.15rem;
+}
+
+.ai-chat-input-area input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-chat-input-area input,
+.ai-chat-input-area button {
+  border-radius: 14px;
+}
+
+@media (max-height: 760px) {
+  .ai-chat-container {
+    padding-top: 14px;
+    padding-bottom: 10px;
+  }
+
+  .ai-chat-header {
+    gap: 18px;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+  }
+
+  .ai-chat-logo {
+    width: 64px;
+    height: 64px;
+  }
+
+  .ai-chat-header-text h2 {
+    font-size: 2.1rem;
+    margin-bottom: 2px;
+  }
+
+  .ai-chat-header-text p {
+    font-size: 1.1rem;
+  }
+
+  .ai-chat-messages {
+    padding: 18px;
+    gap: 14px;
+  }
+
+  .ai-msg {
+    padding: 12px 20px;
+    font-size: 1.15rem;
+  }
+
+  .ai-chat-input-area {
+    margin-top: 12px;
+    gap: 14px;
+  }
+
+  .ai-chat-input-area input {
+    padding: 14px 22px;
+    font-size: 1.15rem;
+  }
+
+  .ai-chat-input-area button {
+    padding: 14px 34px;
+    font-size: 1.25rem;
+  }
+}
+
+/* ---- Guess the Rank ---- */
+.guess-rank-title {
+  margin-bottom: 12px;
+}
+
+.guess-rank-header .guess-rank-subtitle {
+  max-width: none;
+  margin: 8px auto 0;
+  text-align: center;
+}
+
+.guess-youtube-embed::before {
+  content: 'Loading clip\2026';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'TechnoRaceItalic', 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.5px;
+  color: var(--sc-text-dim);
+}
+
+.guess-rank-message {
+  margin: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 70, 85, 0.08);
+  border: 1px solid var(--sc-border);
+  color: var(--sc-text);
+}
+
+.guess-rank-icon-card.active {
+  background: linear-gradient(160deg, rgba(255, 70, 85, 0.26) 0%, rgba(26, 39, 51, 0.95) 100%);
+  border-color: var(--sc-accent);
+  box-shadow: 0 0 0 1px var(--sc-accent), 0 0 18px rgba(255, 70, 85, 0.35);
+}
+
+.guess-rank-result:not([hidden]) {
+  animation: scFadeUp 0.22s var(--sc-ease);
+}
+
+.guess-rank-next-btn {
+  border-radius: var(--sc-radius-btn);
+  border-color: transparent;
+  background: linear-gradient(90deg, var(--sc-accent-soft), var(--sc-accent));
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(255, 70, 85, 0.25);
+  transition: filter 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.guess-rank-next-btn:hover {
+  background: linear-gradient(90deg, var(--sc-accent-soft), var(--sc-accent));
+  border-color: transparent;
+  filter: brightness(1.08);
+}
+
+/* ---- Strategy / Line-ups buttons share the same radius ---- */
+.strategy-download-btn,
+.back-button {
+  border-radius: var(--sc-radius-btn);
+}
+
+/* ---- Onboarding ---- */
+.onboarding-card {
+  padding-bottom: 64px;
+}
+
+.onboarding-emblem {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 18px rgba(255, 70, 85, 0.35));
+}
+
+.onboarding-card--simple .onboarding-title {
+  margin-bottom: 4px;
+}
+
+.onboarding-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  display: flex;
+  gap: 8px;
+  transform: translateX(-50%);
+}
+
+.onboarding-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.onboarding-dots span.active {
+  width: 24px;
+  background: var(--sc-accent);
+}
+
+/* ---- Guided tutorial ---- */
+.sc-tour-highlight {
+  outline-width: 2px;
+  box-shadow:
+    0 0 0 5px rgba(255, 70, 85, 0.22),
+    0 0 18px 4px rgba(255, 70, 85, 0.5),
+    0 0 0 9999px rgba(8, 13, 19, 0.68);
+  transition: none;
+}
+
+.sc-tour-root.is-ready .sc-tour-highlight {
+  transition: left 0.2s ease, top 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.sc-tour-card {
+  animation: scFadeUp 0.2s var(--sc-ease);
+}
+
+.sc-tour-root.is-ready .sc-tour-card {
+  transition: left 0.2s ease, top 0.2s ease;
+}
+
+.sc-tour-progress {
+  height: 3px;
+  margin: -4px 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.sc-tour-progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--sc-accent-soft), var(--sc-accent));
+  transition: width 0.25s ease;
+}
+
+.sc-tour-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* ---- Motion preferences ---- */
+@media (prefers-reduced-motion: reduce) {
+  .blank-section.active .lineups-title,
+  .blank-section.active .past-games-title,
+  .blank-section.active .analyze-title,
+  .blank-section.active .guess-rank-title,
+  .blank-section.active .whats-new-title,
+  .blank-section.active .analyze-subtitle,
+  .blank-section.active .guess-rank-subtitle,
+  .blank-section.active .maps-grid,
+  .blank-section.active .past-games-list,
+  .blank-section.active .analyze-coming-soon-block,
+  .blank-section.active .ai-chat-messages,
+  .blank-section.active .guess-rank-container,
+  .ai-msg,
+  .guess-rank-result,
+  .sc-tour-card {
+    animation: none;
+  }
+
+  .ai-chat-messages {
+    scroll-behavior: auto;
+  }
 }

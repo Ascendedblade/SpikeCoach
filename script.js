@@ -886,32 +886,36 @@ function showWelcomeAnimation() {
 
 function showOnboarding(page) {
   var page1Content = `
-    <h2 class="onboarding-title">Connect your Valorant Account</h2>
+    <h2 class="onboarding-title">Connect Your VALORANT Account</h2>
     <p class="onboarding-subtitle">Connecting your account will allow you to view historical analysis</p>
-    <div class="onboarding-image-placeholder"></div>
-    <button class="onboarding-btn">Connect Your Account</button>
+    <div class="onboarding-image-placeholder onboarding-coming-soon">COMING SOON</div>
+    <button class="onboarding-btn" id="connectAccountBtn">Connect Your Account</button>
   `;
   
   var page2Content = `
-    <h2 class="onboarding-title">Watch a Tutorial</h2>
+    <img class="onboarding-emblem" src="spikecoach_emblem.png" alt="">
+    <h2 class="onboarding-title">Look at a Tutorial</h2>
     <p class="onboarding-subtitle">Learn how to use SpikeCoach to its fullest extent</p>
-    <div class="onboarding-image-placeholder"></div>
-    <button class="onboarding-btn">Go to Tutorial</button>
+    <button class="onboarding-btn" id="doTutorialBtn">Do a Tutorial</button>
   `;
   
   var page3Content = `
-    <h2 class="onboarding-title">You're All Set!</h2>
+    <img class="onboarding-emblem" src="spikecoach_emblem.png" alt="">
+    <h2 class="onboarding-title">You're Set</h2>
     <p class="onboarding-subtitle">Get started with SpikeCoach now</p>
-    <div class="onboarding-image-placeholder"></div>
     <button class="onboarding-btn" id="letsGoBtn">Let's Go</button>
   `;
   
   var content = page === 1 ? page1Content : (page === 2 ? page2Content : page3Content);
+  var cardClass = page === 1 ? 'onboarding-card' : 'onboarding-card onboarding-card--simple';
   
   document.body.innerHTML = `
     <div class="onboarding-container">
-      <div class="onboarding-card">
+      <div class="${cardClass}">
         ${content}
+        <div class="onboarding-dots" aria-hidden="true">
+          <span class="${page === 1 ? 'active' : ''}"></span><span class="${page === 2 ? 'active' : ''}"></span><span class="${page === 3 ? 'active' : ''}"></span>
+        </div>
         ${page > 1 ? '<div class="onboarding-arrow onboarding-arrow-left" id="prevBtn">&#8249;</div>' : ''}
         ${page < 3 ? '<div class="onboarding-arrow onboarding-arrow-right" id="nextBtn">&#8250;</div>' : ''}
       </div>
@@ -921,6 +925,27 @@ function showOnboarding(page) {
   var nextBtn = document.getElementById('nextBtn');
   var prevBtn = document.getElementById('prevBtn');
   var letsGoBtn = document.getElementById('letsGoBtn');
+  var connectAccountBtn = document.getElementById('connectAccountBtn');
+  var doTutorialBtn = document.getElementById('doTutorialBtn');
+  
+  // Account linking is not implemented yet: just continue onboarding.
+  if (connectAccountBtn) {
+    connectAccountBtn.addEventListener('click', function() {
+      showOnboarding(2);
+    });
+  }
+  
+  // Enter the normal app, then start the guided tour (see spikecoach-tutorial.js).
+  if (doTutorialBtn) {
+    doTutorialBtn.addEventListener('click', function() {
+      showMainApp();
+      if (typeof window.startSpikeCoachTutorial === 'function') {
+        setTimeout(function() {
+          window.startSpikeCoachTutorial();
+        }, 350);
+      }
+    });
+  }
   
   if (nextBtn) {
     nextBtn.addEventListener('click', function() {
@@ -949,7 +974,7 @@ function showMainApp() {
   var userEmail = '';
   var userInitial = getSpikeCoachUserInitial();
   var userName = getSpikeCoachDisplayName();
-
+  
   try {
     if (window.firebaseAuth && window.firebaseAuth.currentUser) {
       userEmail = window.firebaseAuth.currentUser.email || '';
@@ -1010,13 +1035,14 @@ function showMainApp() {
           <h1 class="welcome-title">Welcome to SpikeCoach</h1>
           <p class="welcome-subtitle">${userEmail ? 'Signed in as ' + userEmail : 'You are now logged in.'}</p>
           <button class="spikecoach-tab-btn" id="spikecoachTabBtn">Open SpikeCoach Tab</button>
+          <p class="welcome-hint">Opens the in-game window with live stats and post-match recommendations.</p>
           <p class="riot-disclaimer">SpikeCoach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>
         </div>
         <div class="whats-new-section" id="whatsNewSection">
           <article class="whats-new-blog">
             <header class="whats-new-blog-header">
               <span class="whats-new-eyebrow">SpikeCoach Blog</span>
-              <h1 class="whats-new-title">What's New</h1>
+          <h1 class="whats-new-title">What's New</h1>
               <p class="whats-new-subtitle">A note from the SpikeCoach team</p>
               <p class="whats-new-meta">Your Video Game Companion &mdash; built to help you improve</p>
             </header>
@@ -1025,11 +1051,11 @@ function showMainApp() {
                 <div class="whats-new-author">
                   <img src="spikecoach_emblem.png" alt="SpikeCoach" class="whats-new-author-logo">
                   <span class="whats-new-author-name">opsunday</span>
-                </div>
+        </div>
                 <p class="whats-new-lede">
-                  SpikeCoach is more than a dashboard. It is a full training hub that follows you from agent select to post-match review &mdash; with a live in-game companion that opens when you are in Valorant. Here is everything you can use today.
+                  SpikeCoach is more than a dashboard. It is a full training hub that follows you from agent select to post-match review &mdash; with a live in-game companion that opens when you are in VALORANT. Here is everything you can use today.
                 </p>
-              </div>
+                </div>
 
               <div class="whats-new-grid">
                 <section class="whats-new-block whats-new-block--wide whats-new-block--feature">
@@ -1066,7 +1092,7 @@ function showMainApp() {
                   <span class="whats-new-tag">Ask</span>
                   <h2 class="whats-new-heading">AI Coach</h2>
                   <p>
-                    Your personal Valorant strategist lives in the main app. Ask about agents, maps, roles, or how to climb &mdash; clear answers tuned for improvement, not fluff.
+                    Your personal VALORANT strategist lives in the main app. Ask about agents, maps, roles, or how to climb &mdash; clear answers tuned for improvement, not fluff.
                   </p>
                 </section>
 
@@ -1107,9 +1133,9 @@ function showMainApp() {
                 <p>Thanks for climbing with us. Queue up, open the tab, and let SpikeCoach help you play smarter.</p>
                 <p class="whats-new-team">&mdash; The SpikeCoach Team</p>
               </footer>
-            </div>
+                </div>
           </article>
-        </div>
+              </div>
         <div class="blank-section" id="lineupsSection">
           <div class="agent-select-container">
             <h2 class="agent-select-title lineups-title">Select Agent</h2>
@@ -1337,13 +1363,13 @@ function showMainApp() {
             <div class="past-games-stage">
               <div class="past-games-list" id="pastGamesList" aria-hidden="true">
                 <!-- Games will be dynamically inserted here (preview only) -->
-              </div>
+            </div>
               <div class="past-games-coming-soon" role="note">
                 <div class="past-games-coming-soon-inner">
                   <span class="past-games-coming-soon-label">Coming Soon</span>
                   <p class="past-games-coming-soon-text">Gain valuable insights from past games and look at how you did using our custom performance score.</p>
-                </div>
-              </div>
+          </div>
+        </div>
             </div>
           </div>
         </div>
@@ -1424,7 +1450,7 @@ function showMainApp() {
                   <button type="button" class="strategy-download-btn" id="strategyDownloadBtn">Download Strategy</button>
                 </div>
                 <div class="minimap-container strategy-minimap" id="strategyExportRoot">
-                  <img src="" alt="Minimap" class="minimap-image" id="minimapImage">
+              <img src="" alt="Minimap" class="minimap-image" id="minimapImage">
                   <div class="strategy-map-layer" id="strategyMapLayer" aria-hidden="true">
                     <svg class="strategy-arrow-svg" id="strategyArrowSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
                     <div class="strategy-entities-layer" id="strategyEntitiesLayer"></div>
@@ -1464,12 +1490,12 @@ function showMainApp() {
               <img src="Spikecoach_Final_Logo.png" alt="SpikeCoach" class="ai-chat-logo">
               <div class="ai-chat-header-text">
                 <h2>AI Coach</h2>
-                <p>Your personal Valorant strategist</p>
+                <p>Your personal VALORANT strategist</p>
               </div>
             </div>
             <div class="ai-chat-messages" id="aiChatMessages">
               <div class="ai-welcome-message">
-                <p>Hey! I'm your AI Coach. Ask me anything about Valorant - agents, maps, strategies, or how to improve your gameplay!</p>
+                <p>Hey! I'm your AI Coach. Ask me anything about VALORANT: agents, maps, strategies, or how to improve your gameplay!</p>
               </div>
             </div>
             <div class="ai-chat-input-area" id="aiChatInputArea">
@@ -1477,7 +1503,7 @@ function showMainApp() {
                 AI Coach is unavailable during an active VALORANT match.
                 <span class="ai-chat-match-notice-sub">AI Coach becomes available again after the match ends.</span>
               </p>
-              <input type="text" id="aiChatInput" placeholder="Ask me anything about Valorant..." maxlength="250">
+              <input type="text" id="aiChatInput" placeholder="Ask me anything about VALORANT..." maxlength="250">
               <button id="aiChatSend">Send</button>
             </div>
             <p class="ai-chat-disclaimer">The first AI response may take around 30–60 seconds while the server starts up.</p>
@@ -2201,7 +2227,7 @@ function showMainApp() {
 
     if (overwolf.games.getRunningGameInfo2) {
       overwolf.games.getRunningGameInfo2(onRunningGame);
-    } else {
+              } else {
       console.log(LOG, 'getRunningGameInfo2 is not available on this client');
     }
   })();
@@ -2286,7 +2312,7 @@ function showMainApp() {
       showMapSelect();
     });
   });
-
+  
   document.querySelectorAll('#mapDetailSection #mapsGrid .map-card').forEach(function(card) {
     if (!card.querySelector('.map-lineup-disclaimer')) {
       card.classList.add('map-card--no-lineups');
@@ -2303,14 +2329,14 @@ function showMainApp() {
       showLineupDetail(selectedAgent);
     });
   });
-
+  
   var backToMapsBtn = document.getElementById('backToMapsBtn');
   if (backToMapsBtn) {
     backToMapsBtn.addEventListener('click', function() {
       showMapSelect();
     });
   }
-
+  
   var backToAgentsBtn = document.getElementById('backToAgentsBtn');
   if (backToAgentsBtn) {
     backToAgentsBtn.addEventListener('click', function() {
@@ -2336,14 +2362,14 @@ function showMainApp() {
       card.classList.add('animate-in');
     });
   }
-
+  
   function showMapSelect() {
     var allSections = document.querySelectorAll('.blank-section, .whats-new-section, .welcome-section');
     allSections.forEach(function(s) { s.classList.remove('active'); });
     document.getElementById('mapDetailSection').classList.add('active');
     setTimeout(function() { animateMapCards('mapDetailSection'); }, 50);
   }
-
+  
   function showLineupDetail(agentName) {
     var agent = agentName || selectedAgent;
     var allSections = document.querySelectorAll('.blank-section, .whats-new-section, .welcome-section');
@@ -3835,10 +3861,10 @@ function showMainApp() {
 
     function bindMapSelector() {
       dom.mapItems.forEach(function(item) {
-        item.addEventListener('click', function() {
+    item.addEventListener('click', function() {
           openMap(this.dataset.map);
-        });
-      });
+    });
+  });
       if (dom.backBtn) dom.backBtn.addEventListener('click', closeMap);
     }
 
@@ -3979,11 +4005,11 @@ function showMainApp() {
     return html;
   }
 
-  function addChatMessage(text, isUser) {
+  function addChatMessage(text, isUser, isError) {
     var msgDiv = document.createElement('div');
-    msgDiv.className = isUser ? 'ai-msg ai-msg-user' : 'ai-msg ai-msg-bot';
+    msgDiv.className = isUser ? 'ai-msg ai-msg-user' : 'ai-msg ai-msg-bot' + (isError ? ' ai-msg-error' : '');
     if (isUser) {
-      msgDiv.textContent = text;
+    msgDiv.textContent = text;
     } else {
       msgDiv.innerHTML = renderBotMarkdown(text);
     }
@@ -4052,7 +4078,7 @@ function showMainApp() {
     var message = aiChatInput.value.trim();
     if (!message) return;
     if (message.length > 250) {
-      addChatMessage('Please keep messages to 250 characters or fewer.', false);
+      addChatMessage('Please keep messages to 250 characters or fewer.', false, true);
       return;
     }
 
@@ -4074,7 +4100,7 @@ function showMainApp() {
     } catch (authError) {
       console.log('[SpikeCoach Chat] pre-fetch auth failure', safeChatErrorLabel(authError));
       removeTyping();
-      addChatMessage('Your session could not be verified. Please sign in again.', false);
+      addChatMessage('Your session could not be verified. Please sign in again.', false, true);
       finishChatSend();
       return;
     }
@@ -4098,17 +4124,18 @@ function showMainApp() {
         data = await response.json();
       } catch (parseError) {
         console.log('[SpikeCoach Chat] response was not JSON');
-        removeTyping();
-        addChatMessage('SpikeCoach AI is temporarily unavailable. Please try again shortly.', false);
+      removeTyping();
+        addChatMessage('SpikeCoach AI is temporarily unavailable. Please try again shortly.', false, true);
         finishChatSend();
         return;
       }
       removeTyping();
-      addChatMessage(coachReplyFromApi(response, data), false);
+      var chatReplyOk = !!(response.ok && data && typeof data.response === 'string' && data.response.trim());
+      addChatMessage(coachReplyFromApi(response, data), false, !chatReplyOk);
     } catch (error) {
       console.log('[SpikeCoach Chat] fetch failure', safeChatErrorLabel(error));
       removeTyping();
-      addChatMessage('Unable to reach SpikeCoach AI. Please try again shortly.', false);
+      addChatMessage('Unable to reach SpikeCoach AI. Please try again shortly.', false, true);
     }
 
     finishChatSend();
@@ -4138,7 +4165,7 @@ function showProfileOverlay(initialSection) {
   var userEmail = '';
   var userInitial = getSpikeCoachUserInitial();
   var userName = getSpikeCoachDisplayName();
-
+  
   try {
     if (window.firebaseAuth && window.firebaseAuth.currentUser) {
       userEmail = window.firebaseAuth.currentUser.email || '';
@@ -4210,7 +4237,7 @@ function showProfileOverlay(initialSection) {
                 <div>
                   <label class="settings-card-title" for="overlayHotkeySelect">SpikeCoach Overlay Hotkey</label>
                   <p class="settings-card-desc">Show or hide the in-game SpikeCoach window with one key combination.</p>
-                </div>
+          </div>
               </div>
               <select id="overlayHotkeySelect" class="overlay-hotkey-select"></select>
               <p class="overlay-hotkey-current" id="overlayHotkeyCurrent"></p>
@@ -4325,7 +4352,7 @@ function showProfileOverlay(initialSection) {
         }
         var newUsername = usernameValidation.name;
         if (newUsername === currentUsername) {
-          cleanup();
+        cleanup();
           return;
         }
         if (!window.updateUserDisplayName) {
@@ -4587,9 +4614,11 @@ function animateOnboarding() {
   var tl = gsap.timeline();
   tl.from('.onboarding-card', {duration:0.5, scale:0.95, opacity:0, ease:'power2.out'})
     .from('.onboarding-title', {duration:0.4, y:-20, opacity:0, ease:'power2.out'}, '-=0.3')
-    .from('.onboarding-subtitle', {duration:0.4, y:-10, opacity:0, ease:'power2.out'}, '-=0.25')
-    .from('.onboarding-image-placeholder', {duration:0.4, scale:0.9, opacity:0, ease:'power2.out'}, '-=0.2')
-    .from('.onboarding-btn', {duration:0.4, y:10, opacity:0, ease:'back.out(1.2)'}, '-=0.2');
+    .from('.onboarding-subtitle', {duration:0.4, y:-10, opacity:0, ease:'power2.out'}, '-=0.25');
+  if (document.querySelector('.onboarding-image-placeholder')) {
+    tl.from('.onboarding-image-placeholder', {duration:0.4, scale:0.9, opacity:0, ease:'power2.out'}, '-=0.2');
+  }
+  tl.from('.onboarding-btn', {duration:0.4, y:10, opacity:0, ease:'back.out(1.2)'}, '-=0.2');
   // Arrows remain always visible - no animation for them
 }
 
@@ -4972,7 +5001,7 @@ function restoreLandingPage() {
           <img src="spikecoach_emblem.png" alt="SPIKECOACH">
           <h1>SpikeCoach</h1>
         </div>
-        <p>AI Valorant Coaching that helps you master strategy, aim, and decision-making.</p>
+        <p>AI VALORANT Coaching that helps you master strategy, aim, and decision-making.</p>
         <button id="getStartedBtn" class="primary-btn">Get Started</button>
       </div>
 
