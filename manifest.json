@@ -33,6 +33,11 @@
         "domain": "spike-coach"
       }
     ],
+    "externally_connectable": {
+      "matches": [
+        "https://spikecoach-api.onrender.com"
+      ]
+    },
     "hotkeys": {
       "toggle_spikecoach": {
         "title": "SpikeCoach Overlay",

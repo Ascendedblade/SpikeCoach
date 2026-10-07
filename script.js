@@ -3,6 +3,7 @@ var verificationResendAvailableAt = 0;
 var SPIKECOACH_USERNAME_MIN = 3;
 var SPIKECOACH_USERNAME_MAX = 20;
 var SPIKECOACH_DEFAULT_DISPLAY_NAME = 'Player';
+var SPIKECOACH_API_BASE_URL = 'https://spikecoach-api.onrender.com';
 
 function validateSpikeCoachUsername(raw) {
   var name = (raw || '').trim();
@@ -4006,31 +4007,44 @@ function showMainApp() {
 
   function coachReplyFromApi(response, data) {
     if (!response.ok) {
-      return (data && data.error) || 'The coach could not answer just now. Please try again.';
+      return chatErrorMessage(response, data);
     }
     if (data && typeof data.response === 'string' && data.response.trim()) {
       return data.response;
     }
-    return (data && data.error) || 'The coach could not answer just now. Please try again.';
+    return chatErrorMessage(response, data);
   }
 
-  function getSpikeCoachIdToken() {
-    var auth = window.firebaseAuth;
-    if (!auth) return Promise.resolve(null);
-    if (auth.currentUser && auth.currentUser.getIdToken) {
-      return auth.currentUser.getIdToken().catch(function () { return null; });
+  function chatErrorMessage(response, data) {
+    if (data && data.error) return data.error;
+    if (!response) {
+      return 'Unable to reach SpikeCoach AI. Please try again shortly.';
     }
-    if (!window.onAuthStateChanged) return Promise.resolve(null);
-    return new Promise(function (resolve) {
-      var unsubscribe = window.onAuthStateChanged(function (user) {
-        if (typeof unsubscribe === 'function') unsubscribe();
-        if (!user || !user.getIdToken) {
-          resolve(null);
-          return;
-        }
-        user.getIdToken().then(resolve).catch(function () { resolve(null); });
-      });
-    });
+    if (response.status === 401) {
+      return 'Your session could not be verified. Please sign in again.';
+    }
+    if (response.status === 429) {
+      return "You've sent too many messages. Please wait a little before trying again.";
+    }
+    if (response.status === 503) {
+      return 'SpikeCoach AI is temporarily unavailable. Please try again shortly.';
+    }
+    return 'The coach could not answer just now. Please try again.';
+  }
+
+  function finishChatSend() {
+    aiChatRequestInFlight = false;
+    applyMainAiChatMatchLock();
+    if (!valorantMatchActiveForChat && aiChatInput) aiChatInput.focus();
+  }
+
+  function safeChatErrorLabel(error) {
+    var name = error && error.name ? String(error.name) : 'Error';
+    var code = error && error.code ? String(error.code) : '';
+    var message = error && error.message ? String(error.message) : '';
+    if (message.length > 80) message = message.slice(0, 80);
+    if (/bearer|eyJ/i.test(message)) message = '';
+    return code || (message ? name + ' ' + message : name);
   }
 
   async function sendAiMessage() {
@@ -4048,30 +4062,56 @@ function showMainApp() {
     applyMainAiChatMatchLock();
     showTyping();
 
-    var chatUrl = 'http://127.0.0.1:3000/api/chat';
+    var chatUrl = SPIKECOACH_API_BASE_URL + '/api/chat';
+    var chatToken = null;
     try {
-      var headers = { 'Content-Type': 'application/json' };
-      var chatToken = await getSpikeCoachIdToken();
-      if (chatToken) headers.Authorization = 'Bearer ' + chatToken;
-      console.log('[SpikeCoach Chat] POST', chatUrl, 'authorization:', !!chatToken);
+      if (typeof window.getSpikeCoachFirebaseIdToken !== 'function') {
+        var missingHelper = new Error('Firebase token helper is not available.');
+        missingHelper.code = 'auth/helper-missing';
+        throw missingHelper;
+      }
+      chatToken = await window.getSpikeCoachFirebaseIdToken();
+    } catch (authError) {
+      console.log('[SpikeCoach Chat] pre-fetch auth failure', safeChatErrorLabel(authError));
+      removeTyping();
+      addChatMessage('Your session could not be verified. Please sign in again.', false);
+      finishChatSend();
+      return;
+    }
+
+    try {
+      var headers = {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + chatToken
+      };
+      console.log('[SpikeCoach Chat] URL:', chatUrl);
+      console.log('[SpikeCoach Chat] authorization header attached: true');
+      console.log('[SpikeCoach Chat] fetch started');
       var response = await fetch(chatUrl, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({ message: message, mode: 'main' })
       });
-      console.log('[SpikeCoach Chat] status', response.status);
-      var data = await response.json();
+      console.log('[SpikeCoach Chat] HTTP status:', response.status);
+      var data = null;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        console.log('[SpikeCoach Chat] response was not JSON');
+        removeTyping();
+        addChatMessage('SpikeCoach AI is temporarily unavailable. Please try again shortly.', false);
+        finishChatSend();
+        return;
+      }
       removeTyping();
       addChatMessage(coachReplyFromApi(response, data), false);
     } catch (error) {
-      console.log('[SpikeCoach Chat] request failed', error && error.name ? error.name : 'Error');
+      console.log('[SpikeCoach Chat] fetch failure', safeChatErrorLabel(error));
       removeTyping();
-      addChatMessage('Cannot connect to server. Run: npm run start-server', false);
+      addChatMessage('Unable to reach SpikeCoach AI. Please try again shortly.', false);
     }
 
-    aiChatRequestInFlight = false;
-    applyMainAiChatMatchLock();
-    if (!valorantMatchActiveForChat && aiChatInput) aiChatInput.focus();
+    finishChatSend();
   }
 
   if (aiChatSend) {

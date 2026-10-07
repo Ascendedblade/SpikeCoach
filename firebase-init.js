@@ -97,3 +97,37 @@ window.firebaseAuthReady.then(function() {
     }
   });
 });
+
+function restoredFirebaseUser() {
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+  return new Promise(function (resolve) {
+    var unsubscribe = onAuthStateChanged(auth, function (user) {
+      if (typeof unsubscribe === 'function') unsubscribe();
+      resolve(user || null);
+    });
+  });
+}
+
+window.getSpikeCoachFirebaseIdToken = function () {
+  var ready = window.firebaseAuthReady || Promise.resolve(auth);
+  return Promise.resolve(ready).then(function () {
+    console.log('[SpikeCoach Auth] auth ready: true');
+    return restoredFirebaseUser();
+  }).then(function (user) {
+    console.log('[SpikeCoach Auth] current user exists:', !!user);
+    if (!user || typeof user.getIdToken !== 'function') {
+      var missing = new Error('No signed-in user.');
+      missing.code = 'auth/no-current-user';
+      throw missing;
+    }
+    return user.getIdToken();
+  }).then(function (token) {
+    if (!token) {
+      var empty = new Error('Empty ID token.');
+      empty.code = 'auth/empty-id-token';
+      throw empty;
+    }
+    console.log('[SpikeCoach Chat] token retrieved: true');
+    return token;
+  });
+};
